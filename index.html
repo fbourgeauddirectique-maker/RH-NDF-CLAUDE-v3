@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#122A2E">
+<title>RH · NDF</title>
+<style>
+:root{
+  --bg-a:#EAF4F1;
+  --bg-b:#FBF3E8;
+  --surface:#FFFFFF;
+  --surface-2:#F4F7F5;
+  --ink:#182228;
+  --ink-soft:#5B6B6E;
+  --line:#DFE6E1;
+
+  /* couleur "maison" (marque) */
+  --brand-1:#0E7C86;
+  --brand-2:#6D4FD1;
+
+  /* thème RH — teal */
+  --rh-1:#0E9AA6;
+  --rh-2:#0B6E77;
+  --rh-soft:#DEF4F3;
+
+  /* thème NDF — ambre / corail */
+  --ndf-1:#F0973B;
+  --ndf-2:#D8590F;
+  --ndf-soft:#FDECD9;
+
+  /* thème Paramètres — violet */
+  --param-1:#8B6CE8;
+  --param-2:#6942C9;
+  --param-soft:#EDE6FB;
+
+  /* accent actif par défaut (redéfini par thème de page) */
+  --accent:var(--rh-1);
+  --accent-2:var(--rh-2);
+  --accent-soft:var(--rh-soft);
+
+  --warn:#D8590F;
+  --warn-soft:#FCE3D3;
+  --ok:#189258;
+  --ok-soft:#DBF3E5;
+
+  --radius:16px;
+  --shadow-sm:0 1px 2px rgba(20,35,35,.06), 0 3px 10px -4px rgba(20,35,35,.10);
+  --shadow-md:0 8px 22px -10px rgba(20,35,35,.28);
+  --safe-bottom:env(safe-area-inset-bottom,0px);
+  --safe-top:env(safe-area-inset-top,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;padding:0;}
+body{
+  background:
+    radial-gradient(1100px 500px at 100% -8%, rgba(109,79,209,.10), transparent 60%),
+    radial-gradient(900px 480px at -10% 0%, rgba(14,124,134,.14), transparent 55%),
+    linear-gradient(180deg, var(--bg-a) 0%, var(--bg-b) 100%);
+  background-attachment:fixed;
+  color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+  min-height:100vh;
+  padding-bottom:calc(70px + var(--safe-bottom));
+}
+.mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;}
+
+/* Thèmes de page : chaque onglet redéfinit --accent localement */
+body.theme-rh    #tab-rh    { --accent:var(--rh-1);    --accent-2:var(--rh-2);    --accent-soft:var(--rh-soft); }
+body.theme-ndf   #tab-ndf   { --accent:var(--ndf-1);   --accent-2:var(--ndf-2);   --accent-soft:var(--ndf-soft); }
+body.theme-param #tab-param { --accent:var(--param-1); --accent-2:var(--param-2); --accent-soft:var(--param-soft); }
+
+/* Topbar */
+header.topbar{
+  position:sticky;top:0;z-index:20;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:calc(12px + var(--safe-top)) 16px 14px;
+  background:linear-gradient(120deg,#0D2B30 0%,#124C55 55%,#155E63 100%);
+  color:#fff;
+  box-shadow:0 6px 18px -8px rgba(10,30,32,.45);
+  transition:background .35s ease;
+}
+body.theme-ndf header.topbar{background:linear-gradient(120deg,#2A1B0E 0%,#7A3E12 60%,#C06423 100%);}
+body.theme-param header.topbar{background:linear-gradient(120deg,#1E1733 0%,#4B3591 60%,#6D4FD1 100%);}
+
+header.topbar .brand{
+  font-weight:800;letter-spacing:.02em;font-size:17px;line-height:1.3;
+  display:flex;align-items:center;gap:8px;
+}
+header.topbar .brand small{font-weight:500;font-size:11px;color:rgba(255,255,255,.65);letter-spacing:.08em;text-transform:uppercase;}
+.week-stamp{
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  background:linear-gradient(135deg, rgba(255,255,255,.22), rgba(255,255,255,.08));
+  border:1px solid rgba(255,255,255,.35);
+  backdrop-filter:blur(2px);
+  color:#fff;
+  border-radius:10px;
+  padding:7px 12px;
+  font-weight:800;
+  font-size:14px;
+  letter-spacing:.03em;
+  transform:rotate(-2deg);
+  box-shadow:0 4px 12px -4px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.25);
+}
+
+main{max-width:640px;margin:0 auto;padding:16px 12px 24px;}
+
+.tab-panel{display:none;}
+.tab-panel.active{display:block;animation:fade .18s ease;}
+@keyframes fade{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+
+.card{
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-left:5px solid var(--accent);
+  border-radius:var(--radius);
+  padding:15px;
+  margin-bottom:13px;
+  box-shadow:var(--shadow-sm);
+}
+.card h2{
+  margin:0 0 12px;
+  font-size:12.5px;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  color:var(--accent-2);
+  font-weight:800;
+  display:flex;align-items:center;justify-content:space-between;
+}
+
+.field{margin-bottom:12px;}
+.field label{
+  display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);
+  margin-bottom:5px;letter-spacing:.01em;
+}
+.field input[type=text],
+.field input[type=number],
+.field input[type=date],
+.field select,
+.field textarea{
+  width:100%;
+  padding:11px 12px;
+  border:1px solid var(--line);
+  border-radius:11px;
+  font-size:16px;
+  background:var(--surface-2);
+  color:var(--ink);
+  font-family:inherit;
+  transition:border-color .15s, box-shadow .15s;
+}
+.field textarea{resize:vertical;min-height:60px;line-height:1.4;}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--accent);outline:none;box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+
+/* checkboxes grid */
+.chk-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+.chk{
+  display:flex;align-items:center;gap:8px;
+  background:var(--surface-2);
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:11px 10px;
+  font-size:13.5px;
+  font-weight:700;
+  transition:transform .12s, box-shadow .12s, background .12s, color .12s;
+}
+.chk input{width:19px;height:19px;accent-color:var(--accent-2);flex:none;}
+.chk.on{
+  background:linear-gradient(135deg, var(--rh-1), var(--rh-2));
+  border-color:var(--rh-2);
+  color:#fff;
+  box-shadow:0 6px 14px -6px rgba(11,110,119,.55);
+  transform:translateY(-1px);
+}
+.chk.on .amt{color:rgba(255,255,255,.85);}
+.chk .amt{margin-left:auto;font-size:11.5px;color:var(--ink-soft);font-weight:600;}
+.chk-inline-input{margin-top:8px;grid-column:1/-1;}
+
+/* horaires */
+.horaires-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.hr-block{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:11px;}
+.hr-block label{display:block;font-size:11px;font-weight:800;color:var(--accent-2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;}
+.hr-row{display:flex;gap:6px;}
+.hr-row input[type=time]{flex:1;border:1px solid var(--line);border-radius:9px;padding:8px;font-size:15px;font-family:inherit;background:#fff;}
+.btn-now{
+  border:none;
+  background:linear-gradient(135deg, var(--ink) 0%, #2B3A40 100%);
+  color:#fff;border-radius:9px;
+  padding:0 11px;font-size:12px;font-weight:800;
+  box-shadow:0 3px 8px -3px rgba(0,0,0,.35);
+}
+.btn-now:active{transform:scale(.94);}
+
+button{font-family:inherit;cursor:pointer;}
+.btn{
+  width:100%;border:none;border-radius:13px;padding:14px;
+  font-size:15.5px;font-weight:800;letter-spacing:.01em;
+  transition:transform .1s, box-shadow .15s, filter .15s;
+}
+.btn:active{transform:scale(.98);}
+.btn-primary{
+  background:linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+  color:#fff;
+  box-shadow:0 10px 20px -10px var(--accent-2), inset 0 1px 0 rgba(255,255,255,.25);
+}
+.btn-primary:active{filter:brightness(.96);}
+.btn-secondary{background:linear-gradient(135deg,#22333A,#101B1F);color:#fff;box-shadow:0 8px 18px -10px rgba(0,0,0,.5);}
+.btn-ghost{background:var(--surface);color:var(--accent-2);border:1.5px solid var(--accent-soft);box-shadow:var(--shadow-sm);}
+.btn-danger{background:linear-gradient(135deg,#FCE3D3,#FBD3BC);color:#B5410F;box-shadow:var(--shadow-sm);}
+.btn-sm{padding:9px 12px;font-size:13px;border-radius:10px;}
+.stack{display:flex;flex-direction:column;gap:9px;}
+
+/* history list */
+.day-item{
+  display:flex;align-items:center;gap:10px;
+  padding:11px 6px;border-bottom:1px dashed var(--line);
+}
+.day-item:last-child{border-bottom:none;}
+.day-item .d-date{
+  font-weight:800;font-size:13px;width:56px;text-align:center;
+  font-family:ui-monospace,monospace;color:#fff;
+  background:linear-gradient(135deg, var(--rh-1), var(--rh-2));
+  border-radius:9px;padding:7px 4px;line-height:1.15;
+  box-shadow:0 4px 10px -5px rgba(11,110,119,.6);
+}
+.day-item .d-info{flex:1;font-size:12.5px;color:var(--ink-soft);line-height:1.5;}
+.day-item .d-hours{display:inline-block;margin-top:2px;font-size:11.5px;font-weight:800;color:var(--rh-2);}
+.day-item .d-comment{display:inline-block;margin-top:3px;font-size:11.5px;font-style:italic;color:var(--ink-soft);}
+.day-item .d-actions{display:flex;gap:6px;}
+.icon-btn{
+  border:none;background:var(--surface-2);border-radius:9px;
+  width:32px;height:32px;font-size:14px;display:flex;align-items:center;justify-content:center;
+  box-shadow:var(--shadow-sm);
+}
+.icon-btn.del{background:var(--warn-soft);color:var(--warn);}
+.empty{color:var(--ink-soft);font-size:13px;padding:8px 2px;}
+
+/* NDF week nav */
+.week-nav{display:flex;align-items:center;gap:8px;margin-bottom:13px;}
+.week-nav button{
+  border:none;background:var(--surface);border:1px solid var(--line);
+  width:42px;height:42px;border-radius:12px;font-size:18px;font-weight:800;
+  box-shadow:var(--shadow-sm);color:var(--ndf-2);
+}
+.week-nav button:active{transform:scale(.94);}
+.week-nav .week-big{
+  flex:1;text-align:center;color:#fff;
+  background:linear-gradient(120deg, var(--ndf-1), var(--ndf-2));
+  border-radius:14px;padding:11px;
+  box-shadow:0 8px 18px -9px rgba(216,89,15,.6);
+}
+.week-nav .week-big .num{font-size:22px;font-weight:800;font-family:ui-monospace,monospace;letter-spacing:.02em;}
+.week-nav .week-big .range{font-size:11px;color:rgba(255,255,255,.85);margin-top:2px;}
+
+.stat-tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px;}
+.stat-tile{border-radius:14px;padding:15px 13px;box-shadow:var(--shadow-sm);}
+.stat-tile .label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:800;opacity:.8;}
+.stat-tile .val{font-size:23px;font-weight:800;font-family:ui-monospace,monospace;margin-top:4px;}
+.stat-tile.pos{background:linear-gradient(135deg,#E4F8ED,#C9EFDA);color:#146C3B;}
+.stat-tile.neg{background:linear-gradient(135deg,#FDEEE4,#FBD3BC);color:#B5410F;}
+
+.ndf-day{border:1px solid var(--line);border-left:4px solid var(--ndf-1);border-radius:13px;padding:13px;margin-bottom:11px;background:var(--surface-2);}
+.ndf-day .hd{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px;}
+.ndf-day .hd .dn{font-weight:800;font-size:14px;color:var(--ndf-2);}
+.ndf-day .hd .dd{font-size:11.5px;color:var(--ink-soft);}
+.ndf-line{display:flex;align-items:center;gap:8px;margin-bottom:7px;}
+.ndf-line label{flex:0 0 92px;font-size:12.5px;font-weight:600;color:var(--ink-soft);}
+.ndf-line input{flex:1;padding:8px 9px;border:1px solid var(--line);border-radius:9px;font-size:15px;background:#fff;font-family:inherit;}
+.ndf-line input:focus{border-color:var(--ndf-1);outline:none;box-shadow:0 0 0 3px rgba(240,151,59,.2);}
+.ndf-day .sub{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-soft);margin-top:7px;padding-top:7px;border-top:1px dashed var(--line);font-weight:600;}
+.ndf-empty-day{opacity:.6;font-size:12.5px;padding:4px 2px;}
+
+/* settings lists */
+.list-item{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:11px 6px;border-bottom:1px dashed var(--line);font-size:14.5px;font-weight:700;
+}
+.list-item:last-child{border-bottom:none;}
+.add-row{display:flex;gap:8px;margin-top:10px;}
+.add-row input{flex:1;padding:11px;border:1px solid var(--line);border-radius:11px;font-size:15px;font-family:inherit;background:var(--surface-2);}
+.add-row input:focus{border-color:var(--param-1);outline:none;box-shadow:0 0 0 3px rgba(139,108,232,.2);}
+.add-row button{
+  border:none;background:linear-gradient(135deg,var(--param-1),var(--param-2));color:#fff;
+  border-radius:11px;padding:0 18px;font-weight:800;font-size:19px;
+  box-shadow:0 8px 16px -8px rgba(105,66,201,.55);
+}
+.add-row button:active{transform:scale(.94);}
+.tarif-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px dashed var(--line);}
+.tarif-row:last-child{border-bottom:none;}
+.tarif-row label{font-size:14px;font-weight:700;}
+.tarif-row input{width:92px;padding:8px;border:1px solid var(--line);border-radius:9px;font-size:15px;text-align:right;font-family:inherit;background:var(--param-soft);}
+.tarif-row input:focus{border-color:var(--param-1);outline:none;}
+
+.hint{font-size:12px;color:var(--ink-soft);margin-top:6px;line-height:1.5;}
+.toast{
+  position:fixed;left:50%;bottom:calc(80px + var(--safe-bottom));transform:translateX(-50%) translateY(10px);
+  background:linear-gradient(120deg,#0D2B30,#155E63);color:#fff;padding:11px 20px;border-radius:30px;font-size:13.5px;font-weight:700;
+  opacity:0;pointer-events:none;transition:.25s;z-index:50;
+  box-shadow:0 10px 26px -10px rgba(0,0,0,.5);
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* tab bar */
+nav.tabbar{
+  position:fixed;left:0;right:0;bottom:0;z-index:30;
+  display:flex;background:rgba(255,255,255,.92);backdrop-filter:blur(10px);
+  border-top:1px solid var(--line);
+  padding-bottom:var(--safe-bottom);
+  box-shadow:0 -6px 18px -10px rgba(20,35,35,.2);
+}
+.tab-btn{
+  flex:1;border:none;background:none;padding:9px 4px 8px;
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  font-size:10.5px;font-weight:800;color:var(--ink-soft);letter-spacing:.02em;
+}
+.tab-btn .ic{
+  font-size:17px;width:34px;height:34px;border-radius:11px;
+  display:flex;align-items:center;justify-content:center;
+  transition:background .15s, transform .15s;
+}
+.tab-btn[data-tab="rh"].active{color:var(--rh-2);}
+.tab-btn[data-tab="rh"].active .ic{background:var(--rh-soft);transform:translateY(-2px);}
+.tab-btn[data-tab="ndf"].active{color:var(--ndf-2);}
+.tab-btn[data-tab="ndf"].active .ic{background:var(--ndf-soft);transform:translateY(-2px);}
+.tab-btn[data-tab="param"].active{color:var(--param-2);}
+.tab-btn[data-tab="param"].active .ic{background:var(--param-soft);transform:translateY(-2px);}
+
+.section-title{
+  font-size:21px;font-weight:800;margin:2px 0 14px;
+  color:var(--accent-2);
+}
+
+@media (min-width:520px){
+  .chk-grid{grid-template-columns:1fr 1fr 1fr;}
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">🛠️ RH·NDF<br><small>Relevé &amp; frais</small></div>
+  <div class="week-stamp" id="topWeekStamp">S. --</div>
+</header>
+
+<main>
+
+  <!-- ONGLET RH -->
+  <section id="tab-rh" class="tab-panel active">
+    <div class="section-title">Relevé d'heures</div>
+
+    <div class="card">
+      <h2>Journée</h2>
+      <div class="row2">
+        <div class="field">
+          <label>Date</label>
+          <input type="date" id="rhDate">
+        </div>
+        <div class="field">
+          <label>Semaine</label>
+          <input type="text" id="rhWeekDisplay" class="mono" disabled>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Mission</label>
+        <select id="rhMission"></select>
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label>Zone</label>
+          <select id="rhZone"></select>
+        </div>
+        <div class="field">
+          <label>Équipe</label>
+          <select id="rhEquipe"></select>
+        </div>
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label>Voiture</label>
+          <select id="rhVoiture"></select>
+        </div>
+        <div class="field">
+          <label>Affectation</label>
+          <select id="rhAffectation"></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Rubriques du jour (alimentent la NDF)</h2>
+      <div class="chk-grid" id="rhCasesGrid"></div>
+    </div>
+
+    <div class="card">
+      <h2>Horaires</h2>
+      <div class="horaires-grid">
+        <div class="hr-block">
+          <label>Début AM</label>
+          <div class="hr-row">
+            <input type="time" id="hDebutAM">
+            <button class="btn-now" data-h="debutAM">now</button>
+          </div>
+        </div>
+        <div class="hr-block">
+          <label>Fin AM</label>
+          <div class="hr-row">
+            <input type="time" id="hFinAM">
+            <button class="btn-now" data-h="finAM">now</button>
+          </div>
+        </div>
+        <div class="hr-block">
+          <label>Début PM</label>
+          <div class="hr-row">
+            <input type="time" id="hDebutPM">
+            <button class="btn-now" data-h="debutPM">now</button>
+          </div>
+        </div>
+        <div class="hr-block">
+          <label>Fin PM</label>
+          <div class="hr-row">
+            <input type="time" id="hFinPM">
+            <button class="btn-now" data-h="finPM">now</button>
+          </div>
+        </div>
+      </div>
+      <div class="field" style="margin-top:12px;margin-bottom:0;">
+        <label>Commentaire</label>
+        <textarea id="rhCommentaire" rows="3" placeholder="Remarque sur la journée (optionnel)"></textarea>
+      </div>
+    </div>
+
+    <div class="stack">
+      <button class="btn btn-primary" id="btnSaveDay">💾 Enregistrer la journée</button>
+      <button class="btn btn-ghost" id="btnDuplicate">📋 Dupliquer la dernière journée</button>
+    </div>
+
+    <div class="card" style="margin-top:12px;">
+      <h2>Journées enregistrées</h2>
+      <button class="btn btn-ghost btn-sm" id="btnExportExcel" style="width:100%;margin-bottom:10px;">📊 Exporter le relevé d'heures (Excel)</button>
+      <div id="rhHistory"></div>
+    </div>
+  </section>
+
+  <!-- ONGLET NDF -->
+  <section id="tab-ndf" class="tab-panel">
+    <div class="section-title">Note de frais</div>
+
+    <div class="week-nav">
+      <button id="ndfPrev">‹</button>
+      <div class="week-big">
+        <div class="num mono" id="ndfWeekNum">S. --</div>
+        <div class="range" id="ndfWeekRange">--</div>
+      </div>
+      <button id="ndfNext">›</button>
+    </div>
+
+    <div class="card">
+      <h2>Avance sur frais (semaine)</h2>
+      <div class="field" style="margin-bottom:0;">
+        <label>Montant reçu</label>
+        <input type="number" step="0.01" id="ndfAvance" placeholder="0.00">
+      </div>
+    </div>
+
+    <div class="stat-tiles">
+      <div class="stat-tile" id="tileRestant">
+        <div class="label">Restant sur avance</div>
+        <div class="val mono" id="valRestant">0,00 €</div>
+      </div>
+      <div class="stat-tile" id="tileGains">
+        <div class="label">Gains réels</div>
+        <div class="val mono" id="valGains">0,00 €</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Détail par jour <span id="ndfTRcount" class="mono" style="font-weight:600;"></span></h2>
+      <div id="ndfDays"></div>
+    </div>
+
+    <div class="card">
+      <h2>Hors forfait (semaine)</h2>
+      <div class="val mono" id="valHorsForfaitTotal" style="font-size:18px;font-weight:700;">0,00 €</div>
+      <div class="hint">Ce montant est déduit du restant sur avance (c'est de l'argent que l'entreprise vous doit), mais n'est pas pris en compte dans le calcul des gains.</div>
+    </div>
+  </section>
+
+  <!-- ONGLET PARAMETRES -->
+  <section id="tab-param" class="tab-panel">
+    <div class="section-title">Paramètres</div>
+
+    <div class="card">
+      <h2>Missions</h2>
+      <div id="listMissions"></div>
+      <div class="add-row"><input type="text" id="newMission" placeholder="Nouvelle mission"><button data-add="missions">+</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Équipes</h2>
+      <div id="listEquipes"></div>
+      <div class="add-row"><input type="text" id="newEquipe" placeholder="Nouvelle équipe"><button data-add="equipes">+</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Affectations</h2>
+      <div id="listAffectations"></div>
+      <div class="add-row"><input type="text" id="newAffectation" placeholder="Nouvelle affectation"><button data-add="affectations">+</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Zones</h2>
+      <div id="listZones"></div>
+      <div class="add-row"><input type="text" id="newZone" placeholder="Nouvelle zone"><button data-add="zones">+</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Voitures</h2>
+      <div id="listVoitures"></div>
+      <div class="add-row"><input type="text" id="newVoiture" placeholder="Nouvelle voiture"><button data-add="voitures">+</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Montants forfaitaires</h2>
+      <div class="tarif-row"><label>Indemnité transport (IT)</label><input type="number" step="0.01" id="tarifIT"></div>
+      <div class="tarif-row"><label>Repas midi (MIDI)</label><input type="number" step="0.01" id="tarifMIDI"></div>
+      <div class="tarif-row"><label>Repas soir (SOIR)</label><input type="number" step="0.01" id="tarifSOIR"></div>
+      <div class="tarif-row"><label>Hôtel basse saison (HOTEL BS)</label><input type="number" step="0.01" id="tarifHOTEL_BS"></div>
+      <div class="tarif-row"><label>Hôtel haute saison (HOTEL HS)</label><input type="number" step="0.01" id="tarifHOTEL_HS"></div>
+      <button class="btn btn-primary" id="btnSaveTarifs" style="margin-top:12px;">Enregistrer les montants</button>
+    </div>
+
+    <div class="card">
+      <h2>Sauvegarde des données</h2>
+      <div class="hint">Les données sont stockées uniquement sur cet appareil (aucun serveur, aucun compte). Exportez régulièrement une copie de sûreté.</div>
+      <div class="stack" style="margin-top:10px;">
+        <button class="btn btn-ghost" id="btnExport">⬇️ Exporter (JSON)</button>
+        <button class="btn btn-ghost" id="btnImport">⬆️ Importer un fichier JSON</button>
+        <input type="file" id="fileImport" accept="application/json" style="display:none;">
+        <button class="btn btn-danger" id="btnReset">🗑️ Réinitialiser toutes les données</button>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<nav class="tabbar">
+  <button class="tab-btn active" data-tab="rh"><span class="ic">🕒</span>RH</button>
+  <button class="tab-btn" data-tab="ndf"><span class="ic">🧾</span>NDF</button>
+  <button class="tab-btn" data-tab="param"><span class="ic">⚙️</span>Paramètres</button>
+</nav>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -459,6 +459,8 @@ nav.tabbar{
       <button id="ndfNext">›</button>
     </div>
 
+    <button class="btn btn-ghost btn-sm" id="btnSyncWeek" style="width:100%;margin-bottom:12px;">📤 Envoyer cette semaine vers Budget</button>
+
     <div class="card">
       <h2>Avance sur frais (semaine)</h2>
       <div class="field" style="margin-bottom:0;">
@@ -587,6 +589,12 @@ nav.tabbar{
         <input type="file" id="fileImport" accept="application/json" style="display:none;">
         <button class="btn btn-danger" id="btnReset">🗑️ Réinitialiser toutes les données</button>
       </div>
+    </div>
+
+    <div class="card">
+      <h2>Lien avec Budget</h2>
+      <div class="hint">Envoie tes dépenses réelles + hors forfait (catégorie DIRECTIQUE) et tes avances reçues (catégorie Avance DTQ) vers l'appli Budget, semaine par semaine. Le fichier généré s'importe depuis l'onglet Réglages de Budget.</div>
+      <button class="btn btn-primary" id="btnSyncAll" style="margin-top:10px;">📤 Exporter toutes les semaines vers Budget</button>
     </div>
   </section>
 

@@ -875,6 +875,116 @@ function initParamEvents() {
 }
 
 /* ---------------------------------------------------------------------- */
+/* Lien vers l'appli Budget (Mes Sous)                                     */
+/* ---------------------------------------------------------------------- */
+
+function computeAllWeekKeys() {
+  const weekKeys = new Set();
+  Object.keys(state.days).forEach(ds => {
+    const info = getISOWeekInfo(parseDateStr(ds));
+    weekKeys.add(info.key);
+  });
+  Object.keys(state.weeks).forEach(wk => weekKeys.add(wk));
+  return Array.from(weekKeys).sort();
+}
+
+/* Dépense = toutes les dépenses réelles (repas/hôtel réels + hôtel HF) + hors forfait,
+   cumulées sur les 7 jours de la semaine. Recette = l'avance reçue cette semaine-là. */
+function computeWeekSync(weekKey) {
+  const m = weekKey.match(/^(\d+)-W(\d+)$/);
+  if (!m) return null;
+  const year = parseInt(m[1], 10);
+  const week = parseInt(m[2], 10);
+  const mondayUTC = isoWeekToMonday(year, week);
+  const mondayLocal = new Date(mondayUTC.getUTCFullYear(), mondayUTC.getUTCMonth(), mondayUTC.getUTCDate());
+  const dates = weekDates(mondayLocal);
+
+  let depense = 0;
+  dates.forEach(d => {
+    const day = state.days[toDateStr(d)];
+    if (!day) return;
+    depense += dayRealExpense(day);
+    depense += (day.horsForfait.montant || 0);
+  });
+  depense = Math.round(depense * 100) / 100;
+
+  const avance = Math.round(((state.weeks[weekKey] && state.weeks[weekKey].avance) || 0) * 100) / 100;
+  const label = `S. ${week} (${fmtDMY(dates[0])} - ${fmtDMY(dates[6])}) · ${year}`;
+
+  return { weekKey, year, week, dateStr: toDateStr(mondayLocal), label, depense, avance };
+}
+
+function buildBudgetSyncPayload(weekEntries) {
+  const transactions = [];
+  weekEntries.forEach(w => {
+    if (w.depense > 0) {
+      transactions.push({
+        id: `ndf-${w.weekKey}-exp`,
+        type: "expense",
+        date: w.dateStr,
+        categoryId: "directique",
+        label: w.label,
+        amount: w.depense,
+        createdAt: new Date().toISOString(),
+        syncKey: `ndf:${w.weekKey}:expense`,
+      });
+    }
+    if (w.avance > 0) {
+      transactions.push({
+        id: `ndf-${w.weekKey}-inc`,
+        type: "income",
+        date: w.dateStr,
+        categoryId: "avance-dtq",
+        label: w.label,
+        amount: w.avance,
+        createdAt: new Date().toISOString(),
+        syncKey: `ndf:${w.weekKey}:income`,
+      });
+    }
+  });
+
+  return {
+    app: "mes-sous",
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    expenseCategories: [{ id: "directique", name: "DIRECTIQUE", emoji: "💼", color: "#FFD1A9", default: false }],
+    incomeCategories: [{ id: "avance-dtq", name: "Avance DTQ", emoji: "💼", color: "#C9B6E8", default: false }],
+    labels: [],
+    recurring: [],
+    transactions,
+  };
+}
+
+function downloadJSON(obj, filename) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function initBudgetSyncEvents() {
+  document.getElementById("btnSyncWeek").addEventListener("click", () => {
+    const info = getISOWeekInfo(ndfMonday);
+    const w = computeWeekSync(info.key);
+    if (!w || (w.depense <= 0 && w.avance <= 0)) { toast("Rien à envoyer pour cette semaine"); return; }
+    downloadJSON(buildBudgetSyncPayload([w]), `budget-sync-S${w.week}-${w.year}.json`);
+    toast("Fichier exporté — à importer dans Budget");
+  });
+
+  document.getElementById("btnSyncAll").addEventListener("click", () => {
+    const weeks = computeAllWeekKeys().map(computeWeekSync).filter(w => w && (w.depense > 0 || w.avance > 0));
+    if (weeks.length === 0) { toast("Aucune donnée à exporter"); return; }
+    downloadJSON(buildBudgetSyncPayload(weeks), `budget-sync-complet-${toDateStr(new Date())}.json`);
+    toast(`${weeks.length} semaine(s) exportée(s)`);
+  });
+}
+
+/* ---------------------------------------------------------------------- */
 /* Init                                                                     */
 /* ---------------------------------------------------------------------- */
 
@@ -890,6 +1000,7 @@ function init() {
   initRHEvents();
   initNDFEvents();
   initParamEvents();
+  initBudgetSyncEvents();
   renderAll();
 }
 

@@ -131,6 +131,7 @@ function weekDates(mondayDate) {
 
 const JOURS_FR = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 const MOIS_FR = ['jan', 'fév', 'mar', 'avr', 'mai', 'juin', 'juil', 'aoû', 'sep', 'oct', 'nov', 'déc'];
+const MOIS_FR_LONG = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 
 function fmtShort(d) {
   return `${JOURS_FR[(d.getDay() + 6) % 7]} ${d.getDate()} ${MOIS_FR[d.getMonth()]}`;
@@ -459,6 +460,8 @@ function initRHEvents() {
 /* ---------------------------------------------------------------------- */
 
 let ndfMonday = getMonday(new Date());
+let ndfMonthDate = new Date();
+let ndfYearValue = new Date().getFullYear();
 
 function dayForecastDeduction(day) {
   if (!day) return 0;
@@ -488,6 +491,91 @@ function dayRealExpense(day) {
 function dayITGain(day) {
   if (!day) return 0;
   return day.cases.IT ? (state.settings.tarifs.IT || 0) : 0;
+}
+
+/* ---- Agrégats mensuels / annuels ---- */
+
+function isoWeekToMonday(year, week) {
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const jan4Day = (jan4.getUTCDay() + 6) % 7;
+  const week1Monday = new Date(jan4);
+  week1Monday.setUTCDate(jan4.getUTCDate() - jan4Day);
+  const monday = new Date(week1Monday);
+  monday.setUTCDate(week1Monday.getUTCDate() + (week - 1) * 7);
+  return monday; // date UTC (jour seul)
+}
+
+function emptyAgg() {
+  return { avance: 0, forecast: 0, real: 0, it: 0, fs: 0, horsForfait: 0 };
+}
+
+// Regroupe l'avance (par semaine, rattachée au mois/année du lundi de la semaine)
+// et les dépenses (par jour, rattachées au mois/année de la date du jour).
+function computePeriodAggregates() {
+  const months = {}; // 'YYYY-MM' -> agg
+  const years = {};  // 'YYYY'    -> agg
+  const getM = k => (months[k] = months[k] || emptyAgg());
+  const getY = k => (years[k] = years[k] || emptyAgg());
+
+  Object.keys(state.weeks).forEach(wk => {
+    const m = wk.match(/^(\d+)-W(\d+)$/);
+    if (!m) return;
+    const avance = state.weeks[wk].avance || 0;
+    if (!avance) return;
+    const monday = isoWeekToMonday(parseInt(m[1], 10), parseInt(m[2], 10));
+    const ym = `${monday.getUTCFullYear()}-${String(monday.getUTCMonth() + 1).padStart(2, '0')}`;
+    const y = String(monday.getUTCFullYear());
+    getM(ym).avance += avance;
+    getY(y).avance += avance;
+  });
+
+  Object.keys(state.days).forEach(ds => {
+    const day = state.days[ds];
+    const d = parseDateStr(ds);
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const y = String(d.getFullYear());
+    const fc = dayForecastDeduction(day);
+    const re = dayRealExpense(day);
+    const it = dayITGain(day);
+    const fs = day.forfaitSpecial.montant || 0;
+    const hf = day.horsForfait.montant || 0;
+    const mAgg = getM(ym);
+    mAgg.forecast += fc; mAgg.real += re; mAgg.it += it; mAgg.fs += fs; mAgg.horsForfait += hf;
+    const yAgg = getY(y);
+    yAgg.forecast += fc; yAgg.real += re; yAgg.it += it; yAgg.fs += fs; yAgg.horsForfait += hf;
+  });
+
+  return { months, years };
+}
+
+function renderBilans() {
+  const { months, years } = computePeriodAggregates();
+
+  const mKey = `${ndfMonthDate.getFullYear()}-${String(ndfMonthDate.getMonth() + 1).padStart(2, '0')}`;
+  const mAgg = months[mKey] || emptyAgg();
+  const mRestant = mAgg.avance - mAgg.forecast;
+  const mGains = mAgg.avance - mAgg.real + mAgg.it + mAgg.fs;
+
+  document.getElementById('moisLabel').textContent = `${MOIS_FR_LONG[ndfMonthDate.getMonth()]} ${ndfMonthDate.getFullYear()}`;
+  document.getElementById('valRestantMois').textContent = money(mRestant);
+  document.getElementById('valGainsMois').textContent = money(mGains);
+  document.getElementById('tileRestantMois').className = 'stat-tile ' + (mRestant >= 0 ? 'pos' : 'neg');
+  document.getElementById('tileGainsMois').className = 'stat-tile ' + (mGains >= 0 ? 'pos' : 'neg');
+  document.getElementById('detailMois').textContent =
+    `Avance : ${money(mAgg.avance)} · Dépenses réelles : ${money(mAgg.real)} · IT : ${money(mAgg.it)} · FS : ${money(mAgg.fs)} · Hors forfait : ${money(mAgg.horsForfait)}`;
+
+  const yKey = String(ndfYearValue);
+  const yAgg = years[yKey] || emptyAgg();
+  const yRestant = yAgg.avance - yAgg.forecast;
+  const yGains = yAgg.avance - yAgg.real + yAgg.it + yAgg.fs;
+
+  document.getElementById('anLabel').textContent = String(ndfYearValue);
+  document.getElementById('valRestantAn').textContent = money(yRestant);
+  document.getElementById('valGainsAn').textContent = money(yGains);
+  document.getElementById('tileRestantAn').className = 'stat-tile ' + (yRestant >= 0 ? 'pos' : 'neg');
+  document.getElementById('tileGainsAn').className = 'stat-tile ' + (yGains >= 0 ? 'pos' : 'neg');
+  document.getElementById('detailAn').textContent =
+    `Avance : ${money(yAgg.avance)} · Dépenses réelles : ${money(yAgg.real)} · IT : ${money(yAgg.it)} · FS : ${money(yAgg.fs)} · Hors forfait : ${money(yAgg.horsForfait)}`;
 }
 
 function renderNDF() {
@@ -600,6 +688,8 @@ function renderNDF() {
       renderNDF();
     });
   });
+
+  renderBilans();
 }
 
 function initNDFEvents() {
@@ -619,6 +709,25 @@ function initNDFEvents() {
     state.weeks[info.key].avance = parseFloat(e.target.value) || 0;
     saveState();
     renderNDF();
+  });
+
+  document.getElementById('moisPrev').addEventListener('click', () => {
+    ndfMonthDate.setMonth(ndfMonthDate.getMonth() - 1);
+    ndfMonthDate = new Date(ndfMonthDate);
+    renderBilans();
+  });
+  document.getElementById('moisNext').addEventListener('click', () => {
+    ndfMonthDate.setMonth(ndfMonthDate.getMonth() + 1);
+    ndfMonthDate = new Date(ndfMonthDate);
+    renderBilans();
+  });
+  document.getElementById('anPrev').addEventListener('click', () => {
+    ndfYearValue -= 1;
+    renderBilans();
+  });
+  document.getElementById('anNext').addEventListener('click', () => {
+    ndfYearValue += 1;
+    renderBilans();
   });
 }
 

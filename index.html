@@ -488,6 +488,50 @@ nav.tabbar{
       <div class="val mono" id="valHorsForfaitTotal" style="font-size:18px;font-weight:700;">0,00 €</div>
       <div class="hint">Ce montant est déduit du restant sur avance (c'est de l'argent que l'entreprise vous doit), mais n'est pas pris en compte dans le calcul des gains.</div>
     </div>
+
+    <div class="card">
+      <h2>Bilan mensuel</h2>
+      <div class="week-nav" style="margin-bottom:11px;">
+        <button id="moisPrev">‹</button>
+        <div class="week-big">
+          <div class="num mono" id="moisLabel">-- --</div>
+        </div>
+        <button id="moisNext">›</button>
+      </div>
+      <div class="stat-tiles">
+        <div class="stat-tile" id="tileRestantMois">
+          <div class="label">Restant sur avance</div>
+          <div class="val mono" id="valRestantMois">0,00 €</div>
+        </div>
+        <div class="stat-tile" id="tileGainsMois">
+          <div class="label">Gains réels</div>
+          <div class="val mono" id="valGainsMois">0,00 €</div>
+        </div>
+      </div>
+      <div class="hint" id="detailMois"></div>
+    </div>
+
+    <div class="card">
+      <h2>Bilan annuel</h2>
+      <div class="week-nav" style="margin-bottom:11px;">
+        <button id="anPrev">‹</button>
+        <div class="week-big">
+          <div class="num mono" id="anLabel">----</div>
+        </div>
+        <button id="anNext">›</button>
+      </div>
+      <div class="stat-tiles">
+        <div class="stat-tile" id="tileRestantAn">
+          <div class="label">Restant sur avance</div>
+          <div class="val mono" id="valRestantAn">0,00 €</div>
+        </div>
+        <div class="stat-tile" id="tileGainsAn">
+          <div class="label">Gains réels</div>
+          <div class="val mono" id="valGainsAn">0,00 €</div>
+        </div>
+      </div>
+      <div class="hint" id="detailAn"></div>
+    </div>
   </section>
 
   <!-- ONGLET PARAMETRES -->

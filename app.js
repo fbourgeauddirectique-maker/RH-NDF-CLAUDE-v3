@@ -77,7 +77,7 @@ function emptyDay(dateStr) {
     horaires: { debutAM: '', finAM: '', debutPM: '', finPM: '' },
     commentaire: '',
     hotelHF: 0,
-    depensesReelles: { MIDI: 0, SOIR: 0, HOTEL_BS: 0, HOTEL_HS: 0 },
+    depensesReelles: { TR: 0, MIDI: 0, SOIR: 0, HOTEL_BS: 0, HOTEL_HS: 0 },
     horsForfait: { montant: 0, note: '' },
     forfaitSpecial: { montant: 0, note: '' }
   };
@@ -535,6 +535,7 @@ function dayForecastDeduction(day) {
 function dayRealExpense(day) {
   if (!day) return 0;
   let v = 0;
+  if (day.cases.TR) v += (day.depensesReelles.TR || 0);
   if (day.cases.MIDI) v += (day.depensesReelles.MIDI || 0);
   if (day.cases.SOIR) v += (day.depensesReelles.SOIR || 0);
   if (day.cases.HOTEL_BS) v += (day.depensesReelles.HOTEL_BS || 0);
@@ -660,7 +661,7 @@ function renderNDF() {
     totalHF += (day.horsForfait.montant || 0);
 
     const activeCases = CASES_DEF.filter(c => day.cases[c.key]);
-    const realInputs = activeCases.filter(c => ['MIDI', 'SOIR', 'HOTEL_BS', 'HOTEL_HS'].includes(c.key)).map(c => `
+    const realInputs = activeCases.filter(c => ['TR', 'MIDI', 'SOIR', 'HOTEL_BS', 'HOTEL_HS'].includes(c.key)).map(c => `
       <div class="ndf-line">
         <label>${c.label}</label>
         <input type="number" step="0.01" placeholder="0.00" data-real="${ds}:${c.key}" value="${day.depensesReelles[c.key] || ''}">

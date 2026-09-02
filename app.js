@@ -184,6 +184,37 @@ function switchTab(tab) {
 /* ---------------------------------------------------------------------- */
 
 let rhCurrentDate = toDateStr(new Date());
+let rhWeekMonday = getMonday(new Date());
+let rhMonthDate = new Date();
+
+function weekTotalHours(monday) {
+  let total = 0;
+  weekDates(monday).forEach(d => {
+    const day = state.days[toDateStr(d)];
+    if (day) total += dayTotalHours(day);
+  });
+  return total;
+}
+
+function monthTotalHours(monthDate) {
+  const y = monthDate.getFullYear(), m = monthDate.getMonth();
+  let total = 0;
+  Object.keys(state.days).forEach(ds => {
+    const d = parseDateStr(ds);
+    if (d.getFullYear() === y && d.getMonth() === m) total += dayTotalHours(state.days[ds]);
+  });
+  return total;
+}
+
+function renderRHTotals() {
+  const info = getISOWeekInfo(rhWeekMonday);
+  const dates = weekDates(rhWeekMonday);
+  document.getElementById('rhWeekTotalLabel').textContent = `S. ${info.week} (${fmtDMY(dates[0])} - ${fmtDMY(dates[6])})`;
+  document.getElementById('rhWeekTotalHours').textContent = fmtHoursHM(weekTotalHours(rhWeekMonday));
+
+  document.getElementById('rhMoisTotalLabel').textContent = `${MOIS_FR_LONG[rhMonthDate.getMonth()]} ${rhMonthDate.getFullYear()}`;
+  document.getElementById('rhMoisTotalHours').textContent = fmtHoursHM(monthTotalHours(rhMonthDate));
+}
 
 function fillSelect(select, items, currentValue) {
   let optionsList = items.slice();
@@ -260,6 +291,7 @@ function renderRH() {
   document.getElementById('rhCommentaire').value = day.commentaire || '';
 
   renderRHHistory();
+  renderRHTotals();
 }
 
 function readRHForm() {
@@ -400,6 +432,7 @@ function renderRHHistory() {
       delete state.days[b.dataset.del];
       saveState();
       renderRHHistory();
+      renderRHTotals();
       if (b.dataset.del === rhCurrentDate) renderRH();
     }
   }));
@@ -426,6 +459,7 @@ function initRHEvents() {
     state.days[day.date] = day;
     saveState();
     renderRHHistory();
+    renderRHTotals();
     toast('Journée enregistrée ✓');
   });
 
@@ -452,6 +486,27 @@ function initRHEvents() {
     document.getElementById('hFinPM').value = last.horaires.finPM || '';
 
     toast('Dernière journée dupliquée — pensez à enregistrer');
+  });
+
+  document.getElementById('rhWeekPrev').addEventListener('click', () => {
+    rhWeekMonday.setDate(rhWeekMonday.getDate() - 7);
+    rhWeekMonday = new Date(rhWeekMonday);
+    renderRHTotals();
+  });
+  document.getElementById('rhWeekNext').addEventListener('click', () => {
+    rhWeekMonday.setDate(rhWeekMonday.getDate() + 7);
+    rhWeekMonday = new Date(rhWeekMonday);
+    renderRHTotals();
+  });
+  document.getElementById('rhMoisPrev').addEventListener('click', () => {
+    rhMonthDate.setMonth(rhMonthDate.getMonth() - 1);
+    rhMonthDate = new Date(rhMonthDate);
+    renderRHTotals();
+  });
+  document.getElementById('rhMoisNext').addEventListener('click', () => {
+    rhMonthDate.setMonth(rhMonthDate.getMonth() + 1);
+    rhMonthDate = new Date(rhMonthDate);
+    renderRHTotals();
   });
 }
 

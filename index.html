@@ -444,6 +444,32 @@ nav.tabbar{
       <button class="btn btn-ghost btn-sm" id="btnExportExcel" style="width:100%;margin-bottom:10px;">📊 Exporter le relevé d'heures (Excel)</button>
       <div id="rhHistory"></div>
     </div>
+
+    <div class="card">
+      <h2>Cumul d'heures</h2>
+      <div class="week-nav" style="margin-bottom:11px;">
+        <button id="rhWeekPrev">‹</button>
+        <div class="week-big">
+          <div class="num mono" id="rhWeekTotalLabel">S. --</div>
+        </div>
+        <button id="rhWeekNext">›</button>
+      </div>
+      <div class="stat-tile pos" style="margin-bottom:14px;">
+        <div class="label">Total heures (semaine)</div>
+        <div class="val mono" id="rhWeekTotalHours">0h00</div>
+      </div>
+      <div class="week-nav" style="margin-bottom:11px;">
+        <button id="rhMoisPrev">‹</button>
+        <div class="week-big">
+          <div class="num mono" id="rhMoisTotalLabel">-- --</div>
+        </div>
+        <button id="rhMoisNext">›</button>
+      </div>
+      <div class="stat-tile pos">
+        <div class="label">Total heures (mois)</div>
+        <div class="val mono" id="rhMoisTotalHours">0h00</div>
+      </div>
+    </div>
   </section>
 
   <!-- ONGLET NDF -->

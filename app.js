@@ -934,71 +934,56 @@ function initParamEvents() {
 /* Lien vers l'appli Budget (Mes Sous)                                     */
 /* ---------------------------------------------------------------------- */
 
-function computeAllWeekKeys() {
-  const weekKeys = new Set();
-  Object.keys(state.days).forEach(ds => {
-    const info = getISOWeekInfo(parseDateStr(ds));
-    weekKeys.add(info.key);
-  });
-  Object.keys(state.weeks).forEach(wk => weekKeys.add(wk));
-  return Array.from(weekKeys).sort();
+// Dépense d'un jour = dépenses réelles (repas/hôtel réels + hôtel HF, TR inclus) + hors forfait.
+// Chaque jour avec une dépense > 0 devient sa propre transaction, datée sur ce jour précis :
+// ainsi une dépense saisie n'importe quel jour tombe toujours dans le bon mois côté Budget.
+function computeDaySync(dateStr) {
+  const day = state.days[dateStr];
+  if (!day) return null;
+  const amount = Math.round((dayRealExpense(day) + (day.horsForfait.montant || 0)) * 100) / 100;
+  if (amount <= 0) return null;
+  const info = getISOWeekInfo(parseDateStr(dateStr));
+  const label = `${fmtDMY(parseDateStr(dateStr))} · S.${info.week} · ${day.mission || 'Frais'}`;
+  return {
+    id: `ndf-${dateStr}-exp`,
+    type: 'expense',
+    date: dateStr,
+    categoryId: 'directique',
+    label,
+    amount,
+    createdAt: new Date().toISOString(),
+    syncKey: `ndf:${dateStr}:expense`
+  };
 }
 
-/* Dépense = toutes les dépenses réelles (repas/hôtel réels + hôtel HF) + hors forfait,
-   cumulées sur les 7 jours de la semaine. Recette = l'avance reçue cette semaine-là. */
-function computeWeekSync(weekKey) {
+// Recette = l'avance reçue pour une semaine donnée (saisie par semaine, pas par jour).
+// Datée sur le jeudi de la semaine (jour central ISO), pour tomber dans le mois où se
+// trouve la majorité des jours de cette semaine.
+function computeWeekIncomeSync(weekKey) {
   const m = weekKey.match(/^(\d+)-W(\d+)$/);
   if (!m) return null;
   const year = parseInt(m[1], 10);
   const week = parseInt(m[2], 10);
+  const avance = Math.round(((state.weeks[weekKey] && state.weeks[weekKey].avance) || 0) * 100) / 100;
+  if (avance <= 0) return null;
   const mondayUTC = isoWeekToMonday(year, week);
   const mondayLocal = new Date(mondayUTC.getUTCFullYear(), mondayUTC.getUTCMonth(), mondayUTC.getUTCDate());
   const dates = weekDates(mondayLocal);
-
-  let depense = 0;
-  dates.forEach(d => {
-    const day = state.days[toDateStr(d)];
-    if (!day) return;
-    depense += dayRealExpense(day);
-    depense += (day.horsForfait.montant || 0);
-  });
-  depense = Math.round(depense * 100) / 100;
-
-  const avance = Math.round(((state.weeks[weekKey] && state.weeks[weekKey].avance) || 0) * 100) / 100;
+  const repDate = dates[3];
   const label = `S. ${week} (${fmtDMY(dates[0])} - ${fmtDMY(dates[6])}) · ${year}`;
-
-  return { weekKey, year, week, dateStr: toDateStr(mondayLocal), label, depense, avance };
+  return {
+    id: `ndf-${weekKey}-inc`,
+    type: 'income',
+    date: toDateStr(repDate),
+    categoryId: 'avance-dtq',
+    label,
+    amount: avance,
+    createdAt: new Date().toISOString(),
+    syncKey: `ndf:${weekKey}:income`
+  };
 }
 
-function buildBudgetSyncPayload(weekEntries) {
-  const transactions = [];
-  weekEntries.forEach(w => {
-    if (w.depense > 0) {
-      transactions.push({
-        id: `ndf-${w.weekKey}-exp`,
-        type: "expense",
-        date: w.dateStr,
-        categoryId: "directique",
-        label: w.label,
-        amount: w.depense,
-        createdAt: new Date().toISOString(),
-        syncKey: `ndf:${w.weekKey}:expense`,
-      });
-    }
-    if (w.avance > 0) {
-      transactions.push({
-        id: `ndf-${w.weekKey}-inc`,
-        type: "income",
-        date: w.dateStr,
-        categoryId: "avance-dtq",
-        label: w.label,
-        amount: w.avance,
-        createdAt: new Date().toISOString(),
-        syncKey: `ndf:${w.weekKey}:income`,
-      });
-    }
-  });
-
+function buildBudgetSyncPayload(transactions) {
   return {
     app: "mes-sous",
     version: 2,
@@ -1026,17 +1011,21 @@ function downloadJSON(obj, filename) {
 function initBudgetSyncEvents() {
   document.getElementById("btnSyncWeek").addEventListener("click", () => {
     const info = getISOWeekInfo(ndfMonday);
-    const w = computeWeekSync(info.key);
-    if (!w || (w.depense <= 0 && w.avance <= 0)) { toast("Rien à envoyer pour cette semaine"); return; }
-    downloadJSON(buildBudgetSyncPayload([w]), `budget-sync-S${w.week}-${w.year}.json`);
+    const dayTxns = weekDates(ndfMonday).map(d => computeDaySync(toDateStr(d))).filter(Boolean);
+    const incomeTxn = computeWeekIncomeSync(info.key);
+    const txns = incomeTxn ? [...dayTxns, incomeTxn] : dayTxns;
+    if (txns.length === 0) { toast("Rien à envoyer pour cette semaine"); return; }
+    downloadJSON(buildBudgetSyncPayload(txns), `budget-sync-S${info.week}-${info.year}.json`);
     toast("Fichier exporté — à importer dans Budget");
   });
 
   document.getElementById("btnSyncAll").addEventListener("click", () => {
-    const weeks = computeAllWeekKeys().map(computeWeekSync).filter(w => w && (w.depense > 0 || w.avance > 0));
-    if (weeks.length === 0) { toast("Aucune donnée à exporter"); return; }
-    downloadJSON(buildBudgetSyncPayload(weeks), `budget-sync-complet-${toDateStr(new Date())}.json`);
-    toast(`${weeks.length} semaine(s) exportée(s)`);
+    const dayTxns = Object.keys(state.days).map(computeDaySync).filter(Boolean);
+    const incomeTxns = Object.keys(state.weeks).map(computeWeekIncomeSync).filter(Boolean);
+    const txns = [...dayTxns, ...incomeTxns];
+    if (txns.length === 0) { toast("Aucune donnée à exporter"); return; }
+    downloadJSON(buildBudgetSyncPayload(txns), `budget-sync-complet-${toDateStr(new Date())}.json`);
+    toast(`${txns.length} opération(s) exportée(s)`);
   });
 }
 

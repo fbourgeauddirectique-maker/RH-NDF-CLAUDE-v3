@@ -529,6 +529,7 @@ function dayForecastDeduction(day) {
   if (day.cases.HOTEL_HS) v += t.HOTEL_HS;
   if (day.cases.HOTEL_HF) v += (day.hotelHF || 0);
   v += (day.horsForfait.montant || 0);
+  v += (day.forfaitSpecial.montant || 0);
   return v;
 }
 
@@ -937,10 +938,14 @@ function initParamEvents() {
 // Dépense d'un jour = dépenses réelles (repas/hôtel réels + hôtel HF, TR inclus) + hors forfait.
 // Chaque jour avec une dépense > 0 devient sa propre transaction, datée sur ce jour précis :
 // ainsi une dépense saisie n'importe quel jour tombe toujours dans le bon mois côté Budget.
+// Dépense d'un jour = dépenses réelles (repas/hôtel réels + hôtel HF, TR inclus) + hors forfait
+// + forfait spécial : ce sont les trois montants que l'entreprise vous doit au-delà de l'avance.
+// Chaque jour avec un montant > 0 devient sa propre transaction, datée sur ce jour précis :
+// ainsi une dépense saisie n'importe quel jour tombe toujours dans le bon mois côté Budget.
 function computeDaySync(dateStr) {
   const day = state.days[dateStr];
   if (!day) return null;
-  const amount = Math.round((dayRealExpense(day) + (day.horsForfait.montant || 0)) * 100) / 100;
+  const amount = Math.round((dayRealExpense(day) + (day.horsForfait.montant || 0) + (day.forfaitSpecial.montant || 0)) * 100) / 100;
   if (amount <= 0) return null;
   const info = getISOWeekInfo(parseDateStr(dateStr));
   const label = `${fmtDMY(parseDateStr(dateStr))} · S.${info.week} · ${day.mission || 'Frais'}`;

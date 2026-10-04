@@ -406,11 +406,17 @@ function renderRHHistory() {
     const horStr = [amStr, pmStr].filter(Boolean).join('  ·  ');
     const total = dayTotalHours(day);
     const commentHtml = day.commentaire ? `<br><span class="d-comment">💬 ${escapeHtml(day.commentaire)}</span>` : '';
+    const details = [
+      day.zone ? `Zone : ${escapeHtml(day.zone)}` : '',
+      day.equipe ? `Équipe : ${escapeHtml(day.equipe)}` : '',
+      day.voiture ? `Voiture : ${escapeHtml(day.voiture)}` : ''
+    ].filter(Boolean).join(' · ');
     return `
       <div class="day-item">
         <div class="d-date mono">${fmtDMY(parseDateStr(d))}</div>
         <div class="d-info">
           S.${info.week} · ${escapeHtml(day.mission || '—')}${day.affectation ? ' · ' + escapeHtml(day.affectation) : ''}
+          ${details ? '<br><span class="d-details">' + details + '</span>' : ''}
           ${cases ? '<br>' + escapeHtml(cases) : ''}
           ${horStr ? `<br><span class="mono d-hours">${horStr}${total > 0 ? '  ·  ' + fmtHoursHM(total) : ''}</span>` : '<br><span class="d-hours">Aucune heure pointée</span>'}
           ${commentHtml}

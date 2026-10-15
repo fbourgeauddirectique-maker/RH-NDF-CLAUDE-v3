@@ -228,6 +228,19 @@ button{font-family:inherit;cursor:pointer;}
 .day-item .d-info{flex:1;font-size:12.5px;color:var(--ink-soft);line-height:1.5;}
 .day-item .d-hours{display:inline-block;margin-top:2px;font-size:11.5px;font-weight:800;color:var(--rh-2);}
 .day-item .d-details{display:inline-block;margin-top:2px;font-size:11.5px;color:var(--ink-soft);}
+
+.counts-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+.count-item{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  background:var(--surface-2);border:1px solid var(--line);border-radius:12px;
+  padding:10px 12px;font-size:13px;font-weight:700;
+}
+.count-item .n{
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:18px;font-weight:800;
+  color:var(--ink-soft);min-width:26px;text-align:right;
+}
+.count-item.active{background:var(--accent-soft);border-color:var(--accent);}
+.count-item.active .n{color:var(--accent-2);}
 .day-item .d-comment{display:inline-block;margin-top:3px;font-size:11.5px;font-style:italic;color:var(--ink-soft);}
 .day-item .d-actions{display:flex;gap:6px;}
 .icon-btn{
@@ -505,6 +518,11 @@ nav.tabbar{
         <div class="label">Gains réels</div>
         <div class="val mono" id="valGains">0,00 €</div>
       </div>
+    </div>
+
+    <div class="card">
+      <h2>Récapitulatif des rubriques (semaine)</h2>
+      <div id="ndfCounts" class="counts-grid"></div>
     </div>
 
     <div class="card">

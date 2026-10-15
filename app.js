@@ -706,6 +706,20 @@ function renderNDF() {
   document.getElementById('ndfDays').innerHTML = daysHtml;
   document.getElementById('ndfTRcount').textContent = trCount > 0 ? `TR: ${trCount}` : '';
 
+  // Récapitulatif : nombre de jours de la semaine où chaque rubrique est cochée dans RH
+  const counts = {};
+  CASES_DEF.forEach(c => { counts[c.key] = 0; });
+  dates.forEach(d => {
+    const day = state.days[toDateStr(d)];
+    if (!day) return;
+    CASES_DEF.forEach(c => { if (day.cases[c.key]) counts[c.key]++; });
+  });
+  document.getElementById('ndfCounts').innerHTML = CASES_DEF.map(c => `
+    <div class="count-item ${counts[c.key] > 0 ? 'active' : ''}">
+      <span>${c.label}</span>
+      <span class="n">${counts[c.key]}</span>
+    </div>`).join('');
+
   const restant = avance - totalForecast;
   const gains = avance - totalReal + totalIT + totalFS;
 

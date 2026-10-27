@@ -16,6 +16,11 @@ const CASES_DEF = [
 
 const DEFAULT_TARIFS = { IT: 2.65, MIDI: 12, SOIR: 15, HOTEL_BS: 58, HOTEL_HS: 68 };
 
+const DEFAULT_HEURES_JOUR = 7 * 60 + 48;   // 7h48 par jour ouvré
+function sanitizeHeuresJour(v) {
+  return (typeof v === 'number' && isFinite(v) && v > 0 && v <= 24 * 60) ? Math.round(v) : DEFAULT_HEURES_JOUR;
+}
+
 /* ---------------------------------------------------------------------- */
 /* State                                                                   */
 /* ---------------------------------------------------------------------- */
@@ -28,7 +33,9 @@ function defaultState() {
       affectations: [],
       zones: [],
       voitures: [],
-      tarifs: { ...DEFAULT_TARIFS }
+      tarifs: { ...DEFAULT_TARIFS },
+      heuresJour: DEFAULT_HEURES_JOUR,      // minutes à effectuer par jour ouvré (lun–ven)
+      congesReduisentSolde: false           // true : un jour de congés retire heuresJour du solde (comme une récup)
     },
     days: {},   // 'YYYY-MM-DD' -> day object
     weeks: {}   // 'YYYY-Www'   -> { avance: number }
@@ -48,7 +55,9 @@ function loadState() {
         affectations: parsed.settings?.affectations || [],
         zones: parsed.settings?.zones || [],
         voitures: parsed.settings?.voitures || [],
-        tarifs: { ...base.settings.tarifs, ...(parsed.settings?.tarifs || {}) }
+        tarifs: { ...base.settings.tarifs, ...(parsed.settings?.tarifs || {}) },
+        heuresJour: sanitizeHeuresJour(parsed.settings?.heuresJour),
+        congesReduisentSolde: !!parsed.settings?.congesReduisentSolde
       },
       days: parsed.days || {},
       weeks: parsed.weeks || {}
@@ -109,6 +118,10 @@ function getISOWeekInfo(dateObj) {
   const week = 1 + Math.round((d - firstThursday) / (7 * 24 * 3600 * 1000));
   const year = d.getUTCFullYear();
   return { week, year, key: `${year}-W${String(week).padStart(2, '0')}` };
+}
+
+function firstOfMonth(dateObj) {
+  return new Date(dateObj.getFullYear(), dateObj.getMonth(), 1);
 }
 
 function getMonday(dateObj) {
@@ -185,7 +198,7 @@ function switchTab(tab) {
 
 let rhCurrentDate = toDateStr(new Date());
 let rhWeekMonday = getMonday(new Date());
-let rhMonthDate = new Date();
+let rhMonthDate = firstOfMonth(new Date());   // toujours le 1er : évite qu'un setMonth() depuis le 31 saute un mois
 
 function weekTotalHours(monday) {
   let total = 0;
@@ -214,6 +227,8 @@ function renderRHTotals() {
 
   document.getElementById('rhMoisTotalLabel').textContent = `${MOIS_FR_LONG[rhMonthDate.getMonth()]} ${rhMonthDate.getFullYear()}`;
   document.getElementById('rhMoisTotalHours').textContent = fmtHoursHM(monthTotalHours(rhMonthDate));
+
+  renderSolde();
 }
 
 function fillSelect(select, items, currentValue) {
@@ -347,6 +362,171 @@ function fmtHoursHM(h) {
   return `${hh}h${String(mm).padStart(2, '0')}`;
 }
 
+/* ---------------------------------------------------------------------- */
+/* Solde d'heures : heures comptées − heures dues (base 7h48 / jour ouvré)  */
+/* ---------------------------------------------------------------------- */
+/* Règles :
+   - Jour ouvré (lun–ven) : dû = heuresJour. Week-end : dû = 0 (les heures faites sont un pur supplément).
+   - Travaillé : compté = heures pointées.
+   - Férié / maladie (lun–ven) : compté = heures pointées + heuresJour  → écart 0 si rien pointé.
+   - Récup : rien de compté, heuresJour dues → retire heuresJour du solde.
+   - Congés : ni compté ni dû (sans effet), sauf si l'option « congés réduisent le solde » est cochée.
+   - Seuls les jours enregistrés comptent : un jour non saisi est ignoré.
+   Le type d'un jour est reconnu au nom de sa mission ou de son affectation
+   (contient « récup », « congé », « férié » ou « maladie », accents et casse ignorés). */
+
+const KIND_LABELS = { travail: 'Travail', ferie: 'Férié', maladie: 'Maladie', recup: 'Récup', conges: 'Congés' };
+
+function normTxt(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
+function dayKind(day) {
+  const t = normTxt(day.mission) + ' ' + normTxt(day.affectation);
+  if (t.includes('recup')) return 'recup';
+  if (t.includes('conge')) return 'conges';
+  if (t.includes('ferie')) return 'ferie';
+  if (t.includes('malad')) return 'maladie';
+  return 'travail';
+}
+
+function toMinutes(t) {
+  if (!t) return null;
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function spanMinutes(start, end) {
+  const s = toMinutes(start), e = toMinutes(end);
+  if (s === null || e === null) return 0;
+  return Math.max(0, e - s);
+}
+
+function dayWorkedMinutes(day) {
+  return spanMinutes(day.horaires.debutAM, day.horaires.finAM) +
+         spanMinutes(day.horaires.debutPM, day.horaires.finPM);
+}
+
+function daySolde(dateStr, day) {
+  const dow = parseDateStr(dateStr).getDay();   // 0 = dimanche
+  const weekday = dow >= 1 && dow <= 5;
+  const full = state.settings.heuresJour;
+  const kind = dayKind(day);
+  const worked = dayWorkedMinutes(day);
+  let due = weekday ? full : 0;
+  let counted = worked;
+  if ((kind === 'ferie' || kind === 'maladie') && weekday) counted += full;
+  if (kind === 'conges' && !state.settings.congesReduisentSolde) due = 0;
+  return { kind, weekday, worked, counted, due, diff: counted - due };
+}
+
+function sumSolde(dateStrs) {
+  const agg = { counted: 0, due: 0, diff: 0, n: 0 };
+  dateStrs.forEach(ds => {
+    const day = state.days[ds];
+    if (!day) return;
+    const s = daySolde(ds, day);
+    agg.counted += s.counted; agg.due += s.due; agg.diff += s.diff; agg.n++;
+  });
+  return agg;
+}
+
+function fmtMin(min) {
+  const a = Math.abs(Math.round(min));
+  return `${Math.floor(a / 60)}h${String(a % 60).padStart(2, '0')}`;
+}
+
+function fmtSigned(min) {
+  const r = Math.round(min);
+  if (r === 0) return '0h00';
+  return (r > 0 ? '+' : '−') + fmtMin(r);
+}
+
+function signClass(min) {
+  const r = Math.round(min);
+  return r > 0 ? 'pos' : (r < 0 ? 'neg' : 'zero');
+}
+
+function kindNote(s) {
+  const full = fmtMin(state.settings.heuresJour);
+  switch (s.kind) {
+    case 'ferie':   return s.weekday ? `Férié : ${full} comptées` : 'Férié un week-end : rien de compté';
+    case 'maladie': return s.weekday ? `Maladie : ${full} comptées` : 'Maladie un week-end : rien de compté';
+    case 'recup':   return s.weekday ? `Récup : rien de compté, ${full} retirées du solde` : 'Récup un week-end : sans effet';
+    case 'conges':  return state.settings.congesReduisentSolde && s.weekday
+                      ? `Congés : ${full} retirées du solde (option activée)`
+                      : 'Congés : sans effet sur le solde';
+    default:        return s.weekday ? 'Jour travaillé' : 'Week-end : heures en supplément';
+  }
+}
+
+let soldeDay = new Date();
+let soldeMonday = getMonday(new Date());
+let soldeMonth = firstOfMonth(new Date());
+let soldeYear = new Date().getFullYear();
+
+function renderSolde() {
+  const root = document.getElementById('soldeBlocks');
+  if (!root) return;
+  document.getElementById('soldeBase').textContent = `base ${fmtMin(state.settings.heuresJour)} / jour`;
+
+  const pad = n => String(n).padStart(2, '0');
+  const jourStr = toDateStr(soldeDay);
+  const jourDay = state.days[jourStr];
+  const jourS = jourDay ? daySolde(jourStr, jourDay) : null;
+
+  const wDates = weekDates(soldeMonday);
+  const wInfo = getISOWeekInfo(soldeMonday);
+  const mPrefix = `${soldeMonth.getFullYear()}-${pad(soldeMonth.getMonth() + 1)}-`;
+  const yPrefix = `${soldeYear}-`;
+  const keys = Object.keys(state.days);
+  const nJours = n => `${n} jour${n > 1 ? 's' : ''} saisi${n > 1 ? 's' : ''}`;
+
+  const blocks = [
+    { id: 'jour', title: 'Jour',
+      label: `${fmtShort(soldeDay)} ${soldeDay.getFullYear()}`,
+      agg: sumSolde([jourStr]),
+      note: jourS ? kindNote(jourS) : 'Aucune saisie ce jour' },
+    { id: 'semaine', title: 'Semaine',
+      label: `S. ${wInfo.week} (${fmtDMY(wDates[0])} - ${fmtDMY(wDates[6])})`,
+      agg: sumSolde(wDates.map(toDateStr)), note: null },
+    { id: 'mois', title: 'Mois',
+      label: `${MOIS_FR_LONG[soldeMonth.getMonth()]} ${soldeMonth.getFullYear()}`,
+      agg: sumSolde(keys.filter(k => k.startsWith(mPrefix))), note: null },
+    { id: 'annee', title: 'Année',
+      label: String(soldeYear),
+      agg: sumSolde(keys.filter(k => k.startsWith(yPrefix))), note: null }
+  ];
+
+  root.innerHTML = blocks.map(b => {
+    const empty = b.agg.n === 0;
+    const cls = empty ? 'zero' : signClass(b.agg.diff);
+    return `
+    <div class="solde-block">
+      <div class="solde-title">${b.title}</div>
+      <div class="week-nav" style="margin-bottom:9px;">
+        <button data-solde="${b.id}" data-dir="-1" aria-label="${b.title} précédent">‹</button>
+        <div class="week-big"><div class="num mono" style="font-size:16px;">${escapeHtml(b.label)}</div></div>
+        <button data-solde="${b.id}" data-dir="1" aria-label="${b.title} suivant">›</button>
+      </div>
+      <div class="solde-grid">
+        <div class="solde-cell"><div class="label">Comptées</div><div class="val mono">${empty ? '—' : fmtMin(b.agg.counted)}</div></div>
+        <div class="solde-cell"><div class="label">Dues</div><div class="val mono">${empty ? '—' : fmtMin(b.agg.due)}</div></div>
+        <div class="solde-cell ecart ${cls}"><div class="label">Écart</div><div class="val mono">${empty ? '—' : fmtSigned(b.agg.diff)}</div></div>
+      </div>
+      <div class="hint solde-note">${escapeHtml(b.note !== null ? b.note : (empty ? 'Aucun jour saisi sur la période' : nJours(b.agg.n)))}</div>
+    </div>`;
+  }).join('');
+}
+
+function navSolde(id, dir) {
+  if (id === 'jour') { soldeDay = new Date(soldeDay.getFullYear(), soldeDay.getMonth(), soldeDay.getDate() + dir); }
+  else if (id === 'semaine') { soldeMonday = new Date(soldeMonday.getFullYear(), soldeMonday.getMonth(), soldeMonday.getDate() + 7 * dir); }
+  else if (id === 'mois') { soldeMonth = new Date(soldeMonth.getFullYear(), soldeMonth.getMonth() + dir, 1); }
+  else if (id === 'annee') { soldeYear += dir; }
+  renderSolde();
+}
+
 function exportRHExcel() {
   if (typeof XLSX === 'undefined') {
     alert("La bibliothèque Excel n'a pas pu être chargée (connexion internet requise la première fois). Réessayez avec une connexion active.");
@@ -405,6 +585,8 @@ function renderRHHistory() {
     const pmStr = (h.debutPM || h.finPM) ? `PM ${h.debutPM || '--:--'} → ${h.finPM || '--:--'}` : '';
     const horStr = [amStr, pmStr].filter(Boolean).join('  ·  ');
     const total = dayTotalHours(day);
+    const sol = daySolde(d, day);
+    const soldeChip = `<span class="d-solde ${signClass(sol.diff)}" title="${escapeHtml(kindNote(sol))}">${sol.kind !== 'travail' ? KIND_LABELS[sol.kind] + ' ' : ''}${fmtSigned(sol.diff)}</span>`;
     const commentHtml = day.commentaire ? `<br><span class="d-comment">💬 ${escapeHtml(day.commentaire)}</span>` : '';
     const details = [
       day.zone ? `Zone : ${escapeHtml(day.zone)}` : '',
@@ -418,7 +600,7 @@ function renderRHHistory() {
           S.${info.week} · ${escapeHtml(day.mission || '—')}${day.affectation ? ' · ' + escapeHtml(day.affectation) : ''}
           ${details ? '<br><span class="d-details">' + details + '</span>' : ''}
           ${cases ? '<br>' + escapeHtml(cases) : ''}
-          ${horStr ? `<br><span class="mono d-hours">${horStr}${total > 0 ? '  ·  ' + fmtHoursHM(total) : ''}</span>` : '<br><span class="d-hours">Aucune heure pointée</span>'}
+          ${horStr ? `<br><span class="mono d-hours">${horStr}${total > 0 ? '  ·  ' + fmtHoursHM(total) : ''}</span>` : '<br><span class="d-hours">Aucune heure pointée</span>'}${soldeChip}
           ${commentHtml}
         </div>
         <div class="d-actions">
@@ -494,6 +676,11 @@ function initRHEvents() {
     toast('Dernière journée dupliquée — pensez à enregistrer');
   });
 
+  document.getElementById('soldeBlocks').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-solde]');
+    if (b) navSolde(b.dataset.solde, parseInt(b.dataset.dir, 10));
+  });
+
   document.getElementById('rhWeekPrev').addEventListener('click', () => {
     rhWeekMonday.setDate(rhWeekMonday.getDate() - 7);
     rhWeekMonday = new Date(rhWeekMonday);
@@ -521,7 +708,7 @@ function initRHEvents() {
 /* ---------------------------------------------------------------------- */
 
 let ndfMonday = getMonday(new Date());
-let ndfMonthDate = new Date();
+let ndfMonthDate = firstOfMonth(new Date());
 let ndfYearValue = new Date().getFullYear();
 
 function dayForecastDeduction(day) {
@@ -861,6 +1048,11 @@ function renderParam() {
   document.getElementById('tarifSOIR').value = t.SOIR;
   document.getElementById('tarifHOTEL_BS').value = t.HOTEL_BS;
   document.getElementById('tarifHOTEL_HS').value = t.HOTEL_HS;
+
+  const hj = state.settings.heuresJour;
+  document.getElementById('heuresJour').value =
+    `${String(Math.floor(hj / 60)).padStart(2, '0')}:${String(hj % 60).padStart(2, '0')}`;
+  document.getElementById('congesReduisentSolde').checked = !!state.settings.congesReduisentSolde;
 }
 
 function initParamEvents() {
@@ -889,6 +1081,16 @@ function initParamEvents() {
     };
     saveState();
     toast('Montants enregistrés ✓');
+    renderRH();
+  });
+
+  document.getElementById('btnSaveHeures').addEventListener('click', () => {
+    const minutes = toMinutes(document.getElementById('heuresJour').value);
+    if (!minutes || minutes <= 0) { toast('Indiquez une durée valide (ex. 07:48)'); return; }
+    state.settings.heuresJour = sanitizeHeuresJour(minutes);
+    state.settings.congesReduisentSolde = document.getElementById('congesReduisentSolde').checked;
+    saveState();
+    toast('Heures à effectuer enregistrées ✓');
     renderRH();
   });
 
@@ -923,7 +1125,9 @@ function initParamEvents() {
             affectations: imported.settings.affectations || [],
             zones: imported.settings.zones || [],
             voitures: imported.settings.voitures || [],
-            tarifs: { ...DEFAULT_TARIFS, ...(imported.settings.tarifs || {}) }
+            tarifs: { ...DEFAULT_TARIFS, ...(imported.settings.tarifs || {}) },
+            heuresJour: sanitizeHeuresJour(imported.settings.heuresJour),
+            congesReduisentSolde: !!imported.settings.congesReduisentSolde
           },
           days: imported.days || {},
           weeks: imported.weeks || {}

@@ -307,6 +307,20 @@ button{font-family:inherit;cursor:pointer;}
 .tarif-row input{width:92px;padding:8px;border:1px solid var(--line);border-radius:9px;font-size:15px;text-align:right;font-family:inherit;background:var(--param-soft);}
 .tarif-row input:focus{border-color:var(--param-1);outline:none;}
 
+.solde-block{margin-bottom:14px;}
+.solde-title{font-size:12px;font-weight:800;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;margin:0 0 5px;}
+.solde-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+.solde-cell{background:#f4f1ec;border-radius:12px;padding:8px 6px;text-align:center;}
+.solde-cell .label{font-size:10.5px;color:var(--ink-soft);}
+.solde-cell .val{font-size:15px;font-weight:800;font-family:ui-monospace,monospace;margin-top:2px;}
+.solde-cell.ecart.pos{background:var(--ok-soft);color:var(--ok);}
+.solde-cell.ecart.neg{background:var(--warn-soft);color:var(--warn);}
+.solde-cell.ecart.zero{background:#eceae6;}
+.solde-note{font-size:11px;color:var(--ink-soft);margin-top:4px;}
+.day-item .d-solde{display:inline-block;margin:2px 0 0 6px;padding:1px 7px;border-radius:9px;font-size:11px;font-weight:800;font-family:ui-monospace,monospace;}
+.d-solde.pos{background:var(--ok-soft);color:var(--ok);}
+.d-solde.neg{background:var(--warn-soft);color:var(--warn);}
+.d-solde.zero{background:#eceae6;color:var(--ink-soft);}
 .hint{font-size:12px;color:var(--ink-soft);margin-top:6px;line-height:1.5;}
 .toast{
   position:fixed;left:50%;bottom:calc(80px + var(--safe-bottom));transform:translateX(-50%) translateY(10px);
@@ -457,6 +471,12 @@ nav.tabbar{
       <h2>Journées enregistrées</h2>
       <button class="btn btn-ghost btn-sm" id="btnExportExcel" style="width:100%;margin-bottom:10px;">📊 Exporter le relevé d'heures (Excel)</button>
       <div id="rhHistory"></div>
+    </div>
+
+    <div class="card">
+      <h2>Solde d'heures <span class="mono" id="soldeBase" style="font-size:12px;font-weight:700;opacity:.7;"></span></h2>
+      <div id="soldeBlocks"></div>
+      <div class="hint">Écart = heures comptées − heures dues. Férié et maladie comptent comme une journée complète ; récup : journée due non travaillée (le solde baisse) ; congés : neutres. Créez des missions « Férié » et « Maladie » dans Paramètres pour que ces jours soient reconnus. Seules les journées enregistrées sont comptées.</div>
     </div>
 
     <div class="card">
@@ -623,6 +643,15 @@ nav.tabbar{
       <div class="tarif-row"><label>Hôtel basse saison (HOTEL BS)</label><input type="number" step="0.01" id="tarifHOTEL_BS"></div>
       <div class="tarif-row"><label>Hôtel haute saison (HOTEL HS)</label><input type="number" step="0.01" id="tarifHOTEL_HS"></div>
       <button class="btn btn-primary" id="btnSaveTarifs" style="margin-top:12px;">Enregistrer les montants</button>
+    </div>
+
+    <div class="card">
+      <h2>Heures à effectuer</h2>
+      <div class="tarif-row"><label>Durée journalière (lun–ven)</label><input type="time" id="heuresJour" value="07:48"></div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13px;">
+        <input type="checkbox" id="congesReduisentSolde"> Les congés réduisent le solde (comme la récup)
+      </label>
+      <button class="btn btn-primary" id="btnSaveHeures" style="margin-top:12px;">Enregistrer</button>
     </div>
 
     <div class="card">

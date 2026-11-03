@@ -1618,8 +1618,6 @@ function buildWeekSheet(tplXml, monday, warnings) {
       totals[col] = r2(totals[col] + sum);
       xml = list.length === 1 ? xlNum(xml, col + row, list[0]) : xlFormula(xml, col + row, list.join('+'), sum);
     });
-    const libs = dayItems.map(j => j.libelle.trim()).filter(Boolean);
-    if (libs.length) xml = xlStr(xml, 'K' + row, libs.join(' / '));
     placed += dayItems.length;
   }
   xml = xlCached(xml, 'A12', monSerial + 1);

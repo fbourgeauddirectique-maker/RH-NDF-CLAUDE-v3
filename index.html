@@ -588,7 +588,13 @@ nav.tabbar{
 
     <div class="card">
       <h2>Note de frais (Excel)</h2>
-      <div class="hint" style="margin:0 0 10px;">Génère le fichier au format de votre modèle : un onglet par semaine, montants par catégorie, code opération du jour, totaux et signature conservée.</div>
+      <div class="hint" style="margin:0 0 10px;">Choisissez une fois votre classeur NDF : l'application le mémorise et y ajoute les nouveaux onglets semaine à chaque export (vos onglets existants sont conservés). Sans classeur, un nouveau fichier est créé.</div>
+      <div id="ndfClasseurInfo" class="hint" style="margin:0 0 8px;"></div>
+      <input type="file" id="ndfClasseurFile" accept=".xlsx" hidden>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <button class="btn btn-ghost btn-sm" id="btnNdfClasseur" style="flex:1;">📂 Choisir mon classeur</button>
+        <button class="btn btn-ghost btn-sm" id="btnNdfClasseurDel">🗑</button>
+      </div>
       <select id="ndfExcelScope" class="scope-sel">
         <option value="semaine">Semaine affichée</option>
         <option value="mois">Mois affiché (toutes ses semaines)</option>

@@ -1644,9 +1644,26 @@ function buildWeekSheet(tplXml, monday, warnings) {
   return { xml, name: `${info.year} S${String(info.week).padStart(2, '0')}`, grand };
 }
 
-async function exportNDFExcel(scope) {
-  if (typeof JSZip === 'undefined') { alert('Bibliothèque Excel non chargée (connexion requise la première fois).'); return; }
-  // semaines à exporter
+const CLASSEUR_KEY = '__classeur__';
+const CLASSEUR_META_KEY = '__classeur_meta__';
+const WEEK_NAME_RE = /^\d{4} S\d{2}$/;
+
+function xmlUnesc(s) {
+  return s.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}
+function xlAttr(tag, name) {
+  const m = tag.match(new RegExp('\\s' + name + '="([^"]*)"'));
+  return m ? m[1] : null;
+}
+function resolveXlPath(base, target) {   // base : dossier du fichier source (ex. 'xl/worksheets')
+  if (target.startsWith('/')) return target.slice(1);
+  const parts = (base + '/' + target).split('/');
+  const out = [];
+  parts.forEach(p => { if (p === '..') out.pop(); else if (p && p !== '.') out.push(p); });
+  return out.join('/');
+}
+
+function selectWeeksForScope(scope) {
   const mondays = new Map();
   const addWeek = d => { const m = getMonday(d); mondays.set(toDateStr(m), m); };
   const parse = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
@@ -1665,9 +1682,11 @@ async function exportNDFExcel(scope) {
     });
     fileLabel = scope === 'mois' ? `${y}-${String(mo + 1).padStart(2, '0')}` : String(y);
   }
-  if (!mondays.size) { toast('Aucun justificatif sur cette période'); return; }
-  const weeks = Array.from(mondays.values()).sort((a, b) => a - b);
+  return { weeks: Array.from(mondays.values()).sort((a, b) => a - b), fileLabel };
+}
 
+// Classeur neuf, construit à partir du modèle intégré
+async function buildNewWorkbook(weeks, warnings) {
   const tpl = await JSZip.loadAsync(NDF_TEMPLATE_B64, { base64: true });
   const weekTpl = await tpl.file('xl/worksheets/week.xml').async('string');
   const files = {};
@@ -1675,8 +1694,6 @@ async function exportNDFExcel(scope) {
     files[f] = await tpl.file(f).async('string');
   }
   const image = await tpl.file('xl/media/image1.jpeg').async('uint8array');
-
-  const warnings = [];
   const out = new JSZip();
   const sheets = [{ name: 'DATE 2026', path: 'worksheets/sheet1.xml' }];
   let total = 0;
@@ -1684,9 +1701,7 @@ async function exportNDFExcel(scope) {
     const w = buildWeekSheet(weekTpl, mon, warnings);
     total += w.grand;
     const n = i + 2;
-    let xml = w.xml;
-    if (i === 0) xml = xml.replace('<sheetView workbookViewId="0">', '<sheetView tabSelected="1" workbookViewId="0">');
-    out.file(`xl/worksheets/sheet${n}.xml`, xml);
+    out.file(`xl/worksheets/sheet${n}.xml`, w.xml);
     out.file(`xl/worksheets/_rels/sheet${n}.xml.rels`,
       `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing${i + 1}.xml"/></Relationships>`);
     out.file(`xl/drawings/drawing${i + 1}.xml`, files['xl/drawings/drawing1.xml']);
@@ -1713,20 +1728,190 @@ async function exportNDFExcel(scope) {
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`);
   out.file('[Content_Types].xml',
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
-    sheets.map((s, i) => `<Override PartName="/xl/${s.path}" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('') +
+    sheets.map(s => `<Override PartName="/xl/${s.path}" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('') +
     weeks.map((w, i) => `<Override PartName="/xl/drawings/drawing${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>`).join('') +
     `<Override PartName="/xl/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/></Types>`);
+  return { zip: out, total, added: sheets.slice(1).map(s => s.name) };
+}
 
-  const blob = await out.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+// Prépare une feuille semaine du classeur existant pour servir de modèle (cellules de saisie vidées)
+function cleanWeekTemplate(xml) {
+  xml = xml.replace(/<c r="([B-P])(\d+)"( s="\d+")?[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g,
+    (m, col, row, s) => (+row >= 7 && +row <= 41) ? `<c r="${col}${row}"${s || ''}/>` : m);
+  xml = xml.replace(/ tabSelected="1"/, '').replace(/ topLeftCell="[^"]*"/, '');
+  xml = xml.replace(/(<pageSetup[^>]*?) r:id="[^"]*"/, '$1');
+  xml = xml.replace(/<drawing r:id="[^"]*"\/>/, '<drawing r:id="rId1"/>');
+  return xml;
+}
+
+// Ajoute (ou remplace) les onglets semaine dans le classeur existant de l'utilisateur
+async function mergeIntoWorkbook(baseBlob, weeks, warnings, askReplace) {
+  const zip = await JSZip.loadAsync(baseBlob);
+  const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  let wb = await zip.file('xl/workbook.xml').async('string');
+  let rels = await zip.file('xl/_rels/workbook.xml.rels').async('string');
+  let ct = await zip.file('[Content_Types].xml').async('string');
+
+  const relMap = {};
+  (rels.match(/<Relationship\b[^>]*>/g) || []).forEach(t => { relMap[xlAttr(t, 'Id')] = xlAttr(t, 'Target'); });
+  const sheetTags = wb.match(/<sheet\b[^>]*\/>/g) || [];
+  const sheets = sheetTags.map(t => ({
+    tag: t, name: xmlUnesc(xlAttr(t, 'name')), id: parseInt(xlAttr(t, 'sheetId'), 10),
+    rid: xlAttr(t, 'r:id'), path: resolveXlPath('xl', relMap[xlAttr(t, 'r:id')])
+  }));
+
+  // feuille modèle = dernière feuille semaine du classeur
+  const tplSheet = sheets.filter(s => WEEK_NAME_RE.test(s.name)).pop();
+  if (!tplSheet) throw new Error("Le classeur mémorisé ne contient aucun onglet semaine (ex. « 2026 S44 »)");
+  const tplRelsPath = tplSheet.path.replace(/([^/]+)$/, '_rels/$1.rels');
+  const tplRels = zip.file(tplRelsPath) ? await zip.file(tplRelsPath).async('string') : '';
+  const drTag = (tplRels.match(/<Relationship\b[^>]*drawing"[^>]*>/) || [])[0];
+  if (!drTag) throw new Error("L'onglet modèle du classeur ne contient pas la signature (dessin)");
+  const drPath = resolveXlPath(tplSheet.path.replace(/\/[^/]+$/, ''), xlAttr(drTag, 'Target'));
+  const drXml = await zip.file(drPath).async('string');
+  const drRelsPath = drPath.replace(/([^/]+)$/, '_rels/$1.rels');
+  const drRels = await zip.file(drRelsPath).async('string');
+  const weekTpl = cleanWeekTemplate(await zip.file(tplSheet.path).async('string'));
+
+  // onglets déjà présents
+  const newNames = weeks.map(m => { const i = getISOWeekInfo(m); return `${i.year} S${String(i.week).padStart(2, '0')}`; });
+  const existing = newNames.filter(n => sheets.some(s => s.name === n));
+  let replaceSet = new Set();
+  if (existing.length && askReplace(existing)) replaceSet = new Set(existing);
+
+  const nums = (re) => Object.keys(zip.files).map(f => (f.match(re) || [])[1]).filter(Boolean).map(Number);
+  let nextSheet = Math.max(0, ...nums(/^xl\/worksheets\/sheet(\d+)\.xml$/));
+  let nextDrawing = Math.max(0, ...nums(/^xl\/drawings\/drawing(\d+)\.xml$/));
+  let nextSheetId = Math.max(0, ...sheets.map(s => s.id));
+  let nextRid = Math.max(0, ...Object.keys(relMap).map(r => parseInt(r.replace(/\D/g, ''), 10) || 0));
+  const added = [];
+  let total = 0;
+
+  for (let k = 0; k < weeks.length; k++) {
+    const name = newNames[k];
+    const exists = sheets.find(s => s.name === name);
+    if (exists && !replaceSet.has(name)) { warnings.push(`Onglet « ${name} » déjà présent : conservé tel quel.`); continue; }
+    const w = buildWeekSheet(weekTpl, weeks[k], warnings);
+    total += w.grand;
+    let shPath, drTarget;
+    if (exists) {
+      shPath = exists.path;
+      const oldRelsPath = shPath.replace(/([^/]+)$/, '_rels/$1.rels');
+      const oldRels = zip.file(oldRelsPath) ? await zip.file(oldRelsPath).async('string') : '';
+      const od = (oldRels.match(/<Relationship\b[^>]*drawing"[^>]*>/) || [])[0];
+      drTarget = od ? xlAttr(od, 'Target') : null;
+    } else {
+      nextSheet++;
+      shPath = `xl/worksheets/sheet${nextSheet}.xml`;
+    }
+    if (!drTarget) {
+      nextDrawing++;
+      zip.file(`xl/drawings/drawing${nextDrawing}.xml`, drXml);
+      zip.file(`xl/drawings/_rels/drawing${nextDrawing}.xml.rels`, drRels);
+      ct = ct.replace('</Types>', `<Override PartName="/xl/drawings/drawing${nextDrawing}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/></Types>`);
+      drTarget = `../drawings/drawing${nextDrawing}.xml`;
+    }
+    zip.file(shPath, w.xml);
+    zip.file(shPath.replace(/([^/]+)$/, '_rels/$1.rels'),
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${REL}/drawing" Target="${drTarget}"/></Relationships>`);
+    if (!exists) {
+      nextRid++; nextSheetId++;
+      const rid = 'rId' + nextRid;
+      rels = rels.replace('</Relationships>', `<Relationship Id="${rid}" Type="${REL}/worksheet" Target="${shPath.replace(/^xl\//, '')}"/></Relationships>`);
+      ct = ct.replace('</Types>', `<Override PartName="/${shPath}" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`);
+      const tag = `<sheet name="${xmlEsc(name)}" sheetId="${nextSheetId}" r:id="${rid}"/>`;
+      // insertion à sa place chronologique parmi les onglets semaine
+      const after = sheets.find(s => WEEK_NAME_RE.test(s.name) && s.name > name);
+      if (after) wb = wb.replace(after.tag, tag + after.tag);
+      else {
+        const lastWeek = sheets.filter(s => WEEK_NAME_RE.test(s.name)).pop();
+        wb = wb.replace(lastWeek.tag, lastWeek.tag + tag);
+      }
+      sheets.push({ tag, name, id: nextSheetId, rid, path: shPath });
+    }
+    added.push(name);
+  }
+
+  // recalcul à l'ouverture, suppression de la chaîne de calcul devenue obsolète
+  if (/<calcPr\b[^>]*\/>/.test(wb)) {
+    wb = wb.replace(/<calcPr\b([^>]*?)\/>/, (m, a) => /fullCalcOnLoad/.test(a) ? m : `<calcPr${a} fullCalcOnLoad="1"/>`);
+  } else {
+    wb = wb.replace('</workbook>', '<calcPr fullCalcOnLoad="1"/></workbook>');
+  }
+  if (zip.file('xl/calcChain.xml')) {
+    zip.remove('xl/calcChain.xml');
+    rels = rels.replace(/<Relationship\b[^>]*calcChain[^>]*\/>/, '');
+    ct = ct.replace(/<Override\b[^>]*calcChain[^>]*\/>/, '');
+  }
+  zip.file('xl/workbook.xml', wb);
+  zip.file('xl/_rels/workbook.xml.rels', rels);
+  zip.file('[Content_Types].xml', ct);
+  return { zip, total, added };
+}
+
+async function workbookSheetNames(blob) {
+  const zip = await JSZip.loadAsync(blob);
+  const wb = await zip.file('xl/workbook.xml').async('string');
+  return (wb.match(/<sheet\b[^>]*\/>/g) || []).map(t => xmlUnesc(xlAttr(t, 'name')));
+}
+
+async function renderClasseurInfo() {
+  const el = document.getElementById('ndfClasseurInfo');
+  if (!el) return;
+  try {
+    const meta = await fileDbGet(CLASSEUR_META_KEY);
+    if (!meta) { el.textContent = 'Aucun classeur mémorisé : le prochain export créera un nouveau fichier.'; return; }
+    const weeks = meta.sheets.filter(n => WEEK_NAME_RE.test(n));
+    el.textContent = `Classeur mémorisé : ${meta.name} · ${weeks.length} onglet(s) semaine` + (weeks.length ? ` (dernier : ${weeks[weeks.length - 1]})` : '');
+  } catch (e) { el.textContent = ''; }
+}
+
+async function importClasseur(file) {
+  if (!file) return;
+  try {
+    const names = await workbookSheetNames(file);
+    if (!names.some(n => WEEK_NAME_RE.test(n))) { alert("Ce classeur ne contient aucun onglet semaine (ex. « 2026 S44 »)."); return; }
+    await fileDbPut(CLASSEUR_KEY, file);
+    await fileDbPut(CLASSEUR_META_KEY, { name: file.name, sheets: names });
+    toast('Classeur mémorisé ✓');
+    renderClasseurInfo();
+  } catch (e) { alert("Fichier Excel illisible : " + e.message); }
+}
+
+async function exportNDFExcel(scope) {
+  if (typeof JSZip === 'undefined') { alert('Bibliothèque Excel non chargée (connexion requise la première fois).'); return; }
+  const { weeks, fileLabel } = selectWeeksForScope(scope);
+  if (!weeks.length) { toast('Aucun justificatif sur cette période'); return; }
+
+  const warnings = [];
+  const baseBlob = await fileDbGet(CLASSEUR_KEY).catch(() => null);
+  const meta = await fileDbGet(CLASSEUR_META_KEY).catch(() => null);
+  let res;
+  if (baseBlob) {
+    res = await mergeIntoWorkbook(baseBlob, weeks, warnings,
+      names => confirm(`Ces onglets existent déjà dans votre classeur :\n${names.join(', ')}\n\nOK = les remplacer par les données de l'application\nAnnuler = les conserver tels quels`));
+  } else {
+    res = await buildNewWorkbook(weeks, warnings);
+  }
+  const blob = await res.zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const fileName = (baseBlob && meta && meta.name) ? meta.name : `NDF_${fileLabel}.xlsx`;
+
+  // le classeur à jour devient la base des prochains exports
+  try {
+    await fileDbPut(CLASSEUR_KEY, blob);
+    await fileDbPut(CLASSEUR_META_KEY, { name: fileName, sheets: await workbookSheetNames(blob) });
+  } catch (e) { console.error(e); }
+  renderClasseurInfo();
+
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `NDF_${fileLabel}.xlsx`;
+  a.download = fileName;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
-  toast(`Note de frais exportée ✓ (${weeks.length} semaine(s), ${fmtEur(total)})`);
+  toast(res.added.length ? `Onglet(s) ajouté(s) : ${res.added.join(', ')} ✓` : 'Aucun onglet modifié');
   if (warnings.length) setTimeout(() => alert('À vérifier :\n\n• ' + warnings.join('\n• ')), 400);
 }
 
@@ -1737,6 +1922,16 @@ function initNdfExportEvents() {
       alert("Export impossible : " + e.message);
     });
   });
+  const inp = document.getElementById('ndfClasseurFile');
+  document.getElementById('btnNdfClasseur').addEventListener('click', () => inp.click());
+  inp.addEventListener('change', e => { importClasseur(e.target.files[0]); e.target.value = ''; });
+  document.getElementById('btnNdfClasseurDel').addEventListener('click', async () => {
+    if (!confirm('Oublier le classeur mémorisé ? Le prochain export créera un nouveau fichier.')) return;
+    await fileDbDel(CLASSEUR_KEY).catch(() => {});
+    await fileDbDel(CLASSEUR_META_KEY).catch(() => {});
+    renderClasseurInfo();
+  });
+  renderClasseurInfo();
 }
 
 /* ---------------------------------------------------------------------- */

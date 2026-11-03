@@ -2016,7 +2016,7 @@ function rhRowXml(r, n, last) {
   ['N', 'O', 'P', 'Q', 'R', 'S', 'T'].forEach((c, i) => {
     const on = r.f[i] === 1;
     const [stOn, stOff] = flagStyle[c];
-    const lastOn = (c === 'Q' || i >= 3) ? 135 : 134, lastOff = (c === 'Q' || i >= 3) ? 135 : 133;
+    const lastOn = 134, lastOff = 133;   // dernière ligne : 134 = chiffre rouge, 133 = case vide (bordure double)
     x += on ? N(c, 1, sty(stOn, lastOn)) : S(c, NBSP, sty(stOff, lastOff));
   });
   return x + '</row>';

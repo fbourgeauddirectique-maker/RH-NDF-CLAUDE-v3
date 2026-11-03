@@ -25,6 +25,36 @@ function sanitizeHeuresJour(v) {
 /* State                                                                   */
 /* ---------------------------------------------------------------------- */
 
+const DEFAULT_CATEGORIES_HF = [
+  'CARBURANT',
+  'PEAGE / PARKING / TRAIN / TAXI',
+  'CONSOMMATION',
+  'ACHAT MATERIEL',
+  'LAVAGE VOITURE',
+  'HOTEL HORS FORFAIT',
+  'LA POSTE',
+  'DIVERS'
+];
+
+function sanitizeCategories(arr) {
+  if (!Array.isArray(arr)) return DEFAULT_CATEGORIES_HF.slice();
+  const out = arr.filter(x => typeof x === 'string' && x.trim()).map(x => x.trim());
+  return out.length ? out : DEFAULT_CATEGORIES_HF.slice();
+}
+
+function sanitizeJustifs(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr.filter(j => j && typeof j.id === 'string').map(j => ({
+    id: j.id,
+    date: typeof j.date === 'string' ? j.date : '',
+    montant: parseFloat(j.montant) || 0,
+    categorie: typeof j.categorie === 'string' ? j.categorie : '',
+    libelle: typeof j.libelle === 'string' ? j.libelle : '',
+    fileName: typeof j.fileName === 'string' ? j.fileName : '',
+    fileType: typeof j.fileType === 'string' ? j.fileType : ''
+  }));
+}
+
 function defaultState() {
   return {
     settings: {
@@ -33,12 +63,14 @@ function defaultState() {
       affectations: [],
       zones: [],
       voitures: [],
+      categoriesHF: DEFAULT_CATEGORIES_HF.slice(),   // catégories des justificatifs hors forfait
       tarifs: { ...DEFAULT_TARIFS },
       heuresJour: DEFAULT_HEURES_JOUR,      // minutes à effectuer par jour ouvré (lun–ven)
       congesReduisentSolde: false           // true : un jour de congés retire heuresJour du solde (comme une récup)
     },
     days: {},   // 'YYYY-MM-DD' -> day object
-    weeks: {}   // 'YYYY-Www'   -> { avance: number }
+    weeks: {},  // 'YYYY-Www'   -> { avance: number }
+    justifs: [] // justificatifs hors forfait (métadonnées ; les fichiers sont dans IndexedDB)
   };
 }
 
@@ -55,12 +87,14 @@ function loadState() {
         affectations: parsed.settings?.affectations || [],
         zones: parsed.settings?.zones || [],
         voitures: parsed.settings?.voitures || [],
+        categoriesHF: sanitizeCategories(parsed.settings?.categoriesHF),
         tarifs: { ...base.settings.tarifs, ...(parsed.settings?.tarifs || {}) },
         heuresJour: sanitizeHeuresJour(parsed.settings?.heuresJour),
         congesReduisentSolde: !!parsed.settings?.congesReduisentSolde
       },
       days: parsed.days || {},
-      weeks: parsed.weeks || {}
+      weeks: parsed.weeks || {},
+      justifs: sanitizeJustifs(parsed.justifs)
     };
   } catch (e) {
     console.error('Erreur de lecture des données locales', e);
@@ -954,6 +988,7 @@ function renderNDF() {
   });
 
   renderBilans();
+  renderJustifs();
 }
 
 function initNDFEvents() {
@@ -1020,9 +1055,14 @@ function renderListEditor(containerId, arrayKey) {
     const current = state.settings[key][idx];
     const val = prompt('Modifier :', current);
     if (val !== null && val.trim()) {
+      const old = state.settings[key][idx];
       state.settings[key][idx] = val.trim();
+      if (key === 'categoriesHF') {
+        state.justifs.forEach(j => { if (j.categorie === old) j.categorie = val.trim(); });
+      }
       saveState();
       renderParam();
+      if (key === 'categoriesHF') renderJustifs();
     }
   }));
   wrap.querySelectorAll('[data-del-item]').forEach(b => b.addEventListener('click', () => {
@@ -1031,6 +1071,7 @@ function renderListEditor(containerId, arrayKey) {
       state.settings[key].splice(idx, 1);
       saveState();
       renderParam();
+      if (key === 'categoriesHF') renderJustifs();
     }
   }));
 }
@@ -1041,6 +1082,7 @@ function renderParam() {
   renderListEditor('listAffectations', 'affectations');
   renderListEditor('listZones', 'zones');
   renderListEditor('listVoitures', 'voitures');
+  renderListEditor('listCategoriesHF', 'categoriesHF');
 
   const t = state.settings.tarifs;
   document.getElementById('tarifIT').value = t.IT;
@@ -1059,7 +1101,7 @@ function initParamEvents() {
   document.querySelectorAll('[data-add]').forEach(btn => {
     btn.addEventListener('click', () => {
       const key = btn.dataset.add;
-      const inputId = { missions: 'newMission', equipes: 'newEquipe', affectations: 'newAffectation', zones: 'newZone', voitures: 'newVoiture' }[key];
+      const inputId = { missions: 'newMission', equipes: 'newEquipe', affectations: 'newAffectation', zones: 'newZone', voitures: 'newVoiture', categoriesHF: 'newCategorieHF' }[key];
       const input = document.getElementById(inputId);
       const val = input.value.trim();
       if (!val) return;
@@ -1068,6 +1110,7 @@ function initParamEvents() {
       saveState();
       renderParam();
       renderRH();
+      if (key === 'categoriesHF') renderJustifs();
     });
   });
 
@@ -1125,12 +1168,14 @@ function initParamEvents() {
             affectations: imported.settings.affectations || [],
             zones: imported.settings.zones || [],
             voitures: imported.settings.voitures || [],
+            categoriesHF: sanitizeCategories(imported.settings.categoriesHF),
             tarifs: { ...DEFAULT_TARIFS, ...(imported.settings.tarifs || {}) },
             heuresJour: sanitizeHeuresJour(imported.settings.heuresJour),
             congesReduisentSolde: !!imported.settings.congesReduisentSolde
           },
           days: imported.days || {},
-          weeks: imported.weeks || {}
+          weeks: imported.weeks || {},
+          justifs: sanitizeJustifs(imported.justifs)
         };
         saveState();
         toast('Import réussi ✓');
@@ -1148,6 +1193,7 @@ function initParamEvents() {
       if (confirm('Confirmez-vous vraiment la réinitialisation complète ?')) {
         state = defaultState();
         saveState();
+        fileDbClear();
         toast('Données réinitialisées');
         renderAll();
       }
@@ -1258,6 +1304,210 @@ function initBudgetSyncEvents() {
   });
 }
 
+
+/* ---------------------------------------------------------------------- */
+/* Justificatifs hors forfait (fichiers dans IndexedDB)                    */
+/* ---------------------------------------------------------------------- */
+
+const FILE_DB_NAME = 'rhndf_files_v1';
+let fileDbPromise = null;
+let justifFilter = 'semaine';   // 'semaine' | 'tout'
+const justifUrls = {};          // id -> objectURL (miniatures)
+
+function fileDb() {
+  if (!fileDbPromise) {
+    fileDbPromise = new Promise((resolve, reject) => {
+      if (!window.indexedDB) { reject(new Error('IndexedDB indisponible')); return; }
+      const req = indexedDB.open(FILE_DB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('files');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  return fileDbPromise;
+}
+function fileDbOp(mode, fn) {
+  return fileDb().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction('files', mode);
+    const req = fn(tx.objectStore('files'));
+    tx.oncomplete = () => resolve(req ? req.result : undefined);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  }));
+}
+const fileDbPut = (id, blob) => fileDbOp('readwrite', s => s.put(blob, id));
+const fileDbGet = (id) => fileDbOp('readonly', s => s.get(id));
+const fileDbDel = (id) => fileDbOp('readwrite', s => s.delete(id));
+function fileDbClear() {
+  Object.keys(justifUrls).forEach(k => { URL.revokeObjectURL(justifUrls[k]); delete justifUrls[k]; });
+  fileDbOp('readwrite', s => s.clear()).catch(() => {});
+}
+
+// Réduit les photos (côté max 1600 px, JPEG) pour économiser la place ; PDF et autres : inchangés.
+function shrinkImage(file) {
+  return new Promise(resolve => {
+    if (!/^image\/(jpeg|png|webp|heic|heif)/i.test(file.type)) { resolve(file); return; }
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const max = 1600;
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k);
+      c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      c.toBlob(b => resolve(b || file), 'image/jpeg', 0.82);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
+function newJustifId() {
+  return 'j' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+async function importJustifFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  const dates = weekDates(ndfMonday).map(toDateStr);
+  const today = toDateStr(new Date());
+  const defDate = dates.includes(today) ? today : dates[0];
+  const defCat = state.settings.categoriesHF[state.settings.categoriesHF.length - 1] || '';
+  let ok = 0;
+  for (const f of files) {
+    try {
+      const blob = await shrinkImage(f);
+      const id = newJustifId();
+      await fileDbPut(id, blob);
+      const isShrunk = blob !== f;
+      state.justifs.push({
+        id, date: defDate, montant: 0, categorie: defCat, libelle: '',
+        fileName: isShrunk ? f.name.replace(/\.[^.]+$/, '') + '.jpg' : f.name,
+        fileType: blob.type || f.type || ''
+      });
+      ok++;
+    } catch (e) {
+      console.error(e);
+    }
+  }
+  saveState();
+  renderJustifs();
+  toast(ok === files.length ? `${ok} fichier(s) ajouté(s) ✓` : `${ok}/${files.length} fichier(s) ajouté(s)`);
+}
+
+async function openJustif(id) {
+  const j = state.justifs.find(x => x.id === id);
+  if (!j) return;
+  try {
+    const blob = await fileDbGet(id);
+    if (!blob) { toast('Fichier introuvable sur cet appareil'); return; }
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) { toast('Impossible d\'ouvrir le fichier'); }
+}
+
+function renderJustifs() {
+  const wrap = document.getElementById('justifList');
+  if (!wrap) return;
+  const cats = state.settings.categoriesHF;
+  const weekSet = new Set(weekDates(ndfMonday).map(toDateStr));
+  document.querySelectorAll('[data-justif-filter]').forEach(b =>
+    b.classList.toggle('active', b.dataset.justifFilter === justifFilter));
+
+  const list = state.justifs
+    .filter(j => justifFilter === 'tout' || weekSet.has(j.date))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  // Totaux par catégorie
+  const tot = {};
+  let grand = 0;
+  list.forEach(j => { tot[j.categorie || '—'] = (tot[j.categorie || '—'] || 0) + j.montant; grand += j.montant; });
+  const totHtml = Object.keys(tot).length
+    ? Object.keys(tot).map(c => `<div class="jt-row"><span>${escapeHtml(c)}</span><span class="mono">${fmtEur(tot[c])}</span></div>`).join('') +
+      `<div class="jt-row jt-total"><span>Total</span><span class="mono">${fmtEur(grand)}</span></div>`
+    : '';
+  document.getElementById('justifTotals').innerHTML = totHtml;
+
+  if (!list.length) {
+    wrap.innerHTML = '<div class="empty">Aucun justificatif' + (justifFilter === 'semaine' ? ' cette semaine.' : '.') + '</div>';
+    return;
+  }
+  wrap.innerHTML = list.map(j => {
+    const opts = (cats.includes(j.categorie) || !j.categorie ? cats : cats.concat([j.categorie]))
+      .map(c => `<option value="${escapeHtml(c)}" ${c === j.categorie ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
+    const isImg = /^image\//.test(j.fileType);
+    return `<div class="justif" data-id="${j.id}">
+      <div class="justif-top">
+        <button class="justif-thumb" data-open="${j.id}" title="Ouvrir">${isImg ? `<img alt="" data-thumb="${j.id}">` : '<span>📄</span>'}</button>
+        <div class="justif-name">${escapeHtml(j.fileName)}</div>
+        <button class="icon-btn del" data-del-justif="${j.id}">🗑</button>
+      </div>
+      <div class="justif-grid">
+        <label>Catégorie<select data-jf="categorie">${opts}</select></label>
+        <label>Date<input type="date" data-jf="date" value="${escapeHtml(j.date)}"></label>
+        <label>Montant (€)<input type="number" step="0.01" inputmode="decimal" data-jf="montant" value="${j.montant || ''}" placeholder="0.00"></label>
+        <label>Libellé<input type="text" data-jf="libelle" value="${escapeHtml(j.libelle)}" placeholder="Facultatif"></label>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Miniatures
+  wrap.querySelectorAll('img[data-thumb]').forEach(async img => {
+    const id = img.dataset.thumb;
+    try {
+      if (!justifUrls[id]) {
+        const blob = await fileDbGet(id);
+        if (!blob) return;
+        justifUrls[id] = URL.createObjectURL(blob);
+      }
+      img.src = justifUrls[id];
+    } catch (e) {}
+  });
+}
+
+function fmtEur(n) {
+  return (Math.round(n * 100) / 100).toFixed(2).replace('.', ',') + ' €';
+}
+
+function initJustifEvents() {
+  const input = document.getElementById('justifFiles');
+  document.getElementById('btnJustifAdd').addEventListener('click', () => input.click());
+  input.addEventListener('change', e => { importJustifFiles(e.target.files); e.target.value = ''; });
+
+  document.querySelectorAll('[data-justif-filter]').forEach(b => b.addEventListener('click', () => {
+    justifFilter = b.dataset.justifFilter;
+    renderJustifs();
+  }));
+
+  const wrap = document.getElementById('justifList');
+  wrap.addEventListener('click', e => {
+    const o = e.target.closest('[data-open]');
+    if (o) { openJustif(o.dataset.open); return; }
+    const d = e.target.closest('[data-del-justif]');
+    if (d && confirm('Supprimer ce justificatif ?')) {
+      const id = d.dataset.delJustif;
+      state.justifs = state.justifs.filter(j => j.id !== id);
+      if (justifUrls[id]) { URL.revokeObjectURL(justifUrls[id]); delete justifUrls[id]; }
+      fileDbDel(id).catch(() => {});
+      saveState();
+      renderJustifs();
+    }
+  });
+  wrap.addEventListener('change', e => {
+    const f = e.target.dataset.jf;
+    if (!f) return;
+    const id = e.target.closest('.justif').dataset.id;
+    const j = state.justifs.find(x => x.id === id);
+    if (!j) return;
+    j[f] = f === 'montant' ? (parseFloat(e.target.value) || 0) : e.target.value;
+    saveState();
+    renderJustifs();
+  });
+}
+
 /* ---------------------------------------------------------------------- */
 /* Init                                                                     */
 /* ---------------------------------------------------------------------- */
@@ -1274,6 +1524,7 @@ function init() {
   initRHEvents();
   initNDFEvents();
   initParamEvents();
+  initJustifEvents();
   initBudgetSyncEvents();
   renderAll();
 }

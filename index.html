@@ -287,6 +287,21 @@ button{font-family:inherit;cursor:pointer;}
 .ndf-empty-day{opacity:.6;font-size:12.5px;padding:4px 2px;}
 
 /* settings lists */
+.seg{display:flex;gap:6px;}
+.seg button{flex:1;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);font:inherit;font-size:13px;font-weight:700;color:var(--ink-soft);}
+.seg button.active{background:var(--accent,var(--ndf-1));color:#fff;border-color:transparent;}
+.justif-totals{margin:12px 0 4px;font-size:13px;}
+.jt-row{display:flex;justify-content:space-between;padding:4px 2px;border-bottom:1px dashed var(--line);}
+.jt-total{font-weight:800;border-bottom:none;}
+.justif{border:1px solid var(--line);border-radius:14px;padding:10px;margin-top:10px;background:var(--surface-2);}
+.justif-top{display:flex;align-items:center;gap:10px;}
+.justif-thumb{width:52px;height:52px;border-radius:10px;border:1px solid var(--line);background:#fff;overflow:hidden;padding:0;font-size:24px;flex:none;}
+.justif-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.justif-name{flex:1;font-size:12.5px;font-weight:700;word-break:break-all;}
+.justif-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;margin-top:10px;}
+.justif-grid label{display:flex;flex-direction:column;font-size:11px;font-weight:700;color:var(--ink-soft);gap:3px;}
+.justif-grid label:first-child{grid-column:1/-1;}
+.justif-grid input,.justif-grid select{padding:9px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:14px;background:#fff;min-width:0;width:100%;box-sizing:border-box;}
 .list-item{
   display:flex;align-items:center;justify-content:space-between;
   padding:11px 6px;border-bottom:1px dashed var(--line);font-size:14.5px;font-weight:700;
@@ -557,6 +572,19 @@ nav.tabbar{
     </div>
 
     <div class="card">
+      <h2>Justificatifs hors forfait</h2>
+      <div class="hint" style="margin:0 0 10px;">Ajoutez vos tickets, factures et notes d'hôtel (photo ou PDF), puis choisissez la catégorie. Les catégories se gèrent dans Paramètres.</div>
+      <input type="file" id="justifFiles" accept="image/*,application/pdf" multiple hidden>
+      <button class="btn btn-primary" id="btnJustifAdd" style="width:100%;">📎 Ajouter des fichiers</button>
+      <div class="seg" style="margin-top:12px;">
+        <button data-justif-filter="semaine" class="active">Semaine affichée</button>
+        <button data-justif-filter="tout">Tout</button>
+      </div>
+      <div id="justifTotals" class="justif-totals"></div>
+      <div id="justifList"></div>
+    </div>
+
+    <div class="card">
       <h2>Bilan mensuel</h2>
       <div class="week-nav" style="margin-bottom:11px;">
         <button id="moisPrev">‹</button>
@@ -633,6 +661,13 @@ nav.tabbar{
       <h2>Voitures</h2>
       <div id="listVoitures"></div>
       <div class="add-row"><input type="text" id="newVoiture" placeholder="Nouvelle voiture"><button data-add="voitures">+</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Catégories hors forfait</h2>
+      <div id="listCategoriesHF"></div>
+      <div class="add-row"><input type="text" id="newCategorieHF" placeholder="Nouvelle catégorie"><button data-add="categoriesHF">+</button></div>
+      <div class="hint">Renommer une catégorie met aussi à jour les justificatifs déjà classés dedans.</div>
     </div>
 
     <div class="card">

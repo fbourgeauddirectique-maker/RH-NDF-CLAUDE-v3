@@ -1933,6 +1933,225 @@ function initNdfExportEvents() {
 }
 
 /* ---------------------------------------------------------------------- */
+/* Export du relevé RH dans le fichier Excel « FRB - RH 2026 »             */
+/* (onglet dont la cellule A1 contient « NOM PRENOM » ; autres onglets     */
+/*  laissés strictement identiques)                                        */
+/* ---------------------------------------------------------------------- */
+
+const RH_KEY = '__classeur_rh__';
+const RH_META_KEY = '__classeur_rh_meta__';
+const RH_NOM = 'BOURGEAUD FREDERIC';
+const NBSP = ' ';
+
+function parseSharedStrings(xml) {
+  return (xml.match(/<si>[\s\S]*?<\/si>|<si\/>/g) || []).map(si =>
+    xmlUnesc((si.match(/<t[^>]*>[\s\S]*?<\/t>/g) || []).map(t => t.replace(/<[^>]+>/g, '')).join('')));
+}
+function colIdx(letters) { let n = 0; for (const ch of letters) n = n * 26 + ch.charCodeAt(0) - 64; return n; }
+
+// Lit les lignes d'un onglet : { rowNumber -> { COL -> valeur } }
+function readSheetRows(xml, sst) {
+  const rows = {};
+  (xml.match(/<row\b[^>]*>[\s\S]*?<\/row>/g) || []).forEach(rx => {
+    const r = parseInt(rx.match(/<row r="(\d+)"/)[1], 10);
+    const cells = {};
+    (rx.match(/<c\b[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g) || []).forEach(cx => {
+      const ref = cx.match(/ r="([A-Z]+)\d+"/)[1];
+      const t = (cx.match(/ t="(\w+)"/) || [])[1];
+      const v = (cx.match(/<v>([\s\S]*?)<\/v>/) || [])[1];
+      if (t === 's' && v !== undefined) cells[ref] = sst[parseInt(v, 10)];
+      else if (t === 'inlineStr') cells[ref] = xmlUnesc((cx.match(/<t[^>]*>([\s\S]*?)<\/t>/) || [])[1] || '');
+      else if (v !== undefined) cells[ref] = t === 'str' ? xmlUnesc(v) : parseFloat(v);
+    });
+    rows[r] = cells;
+  });
+  return rows;
+}
+
+function rhRowFromCells(c) {
+  const txt = k => (typeof c[k] === 'string' ? c[k].replace(/ /g, ' ').trim() : '');
+  const tm = k => (typeof c[k] === 'number' ? c[k] : null);
+  const one = k => (c[k] === 1 || txt(k) === '1') ? 1 : 0;
+  return {
+    nom: txt('A') || RH_NOM, date: typeof c.B === 'number' ? c.B : null,
+    t: [tm('C'), tm('D'), tm('E'), tm('F')], cumul: typeof c.G === 'number' ? c.G : 0,
+    dec: txt('H'), code: txt('I'), aff: txt('J'), zone: txt('K'), eqv: txt('L'), comm: txt('M'),
+    f: [one('N'), one('O'), one('P'), one('Q'), one('R'), one('S'), one('T')]
+  };
+}
+
+function stripAccents(s) { return s.normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+
+function rhRowFromDay(ds, day) {
+  const toFrac = t => { const m = toMinutes(t); return (t && m !== null && m !== undefined) ? m / 1440 : null; };
+  const worked = dayWorkedMinutes(day);
+  const hh = day.horaires;
+  const up = v => stripAccents((v || '').trim()).toUpperCase();
+  return {
+    nom: RH_NOM, date: xlSerial(parseDateStr(ds)),
+    t: [toFrac(hh.debutAM), toFrac(hh.finAM), toFrac(hh.debutPM), toFrac(hh.finPM)],
+    cumul: worked / 1440, dec: (worked / 60).toFixed(2),
+    code: up(day.mission).replace(/\s+/g, ''), aff: up(day.affectation), zone: up(day.zone),
+    eqv: [day.equipe, day.voiture].map(x => (x || '').trim()).filter(Boolean).join(' / ').toUpperCase(),
+    comm: (day.commentaire || '').trim(),
+    f: ['TR', 'IT', 'MIDI', 'SOIR', 'HOTEL_BS', 'HOTEL_HS', 'HOTEL_HF'].map(k => day.cases[k] ? 1 : 0)
+  };
+}
+
+function rhRowXml(r, n, last) {
+  const S = (ref, text, st) => `<c r="${ref}${n}" s="${st}" t="inlineStr"><is><t xml:space="preserve">${xmlEsc(text)}</t></is></c>`;
+  const N = (ref, val, st) => `<c r="${ref}${n}" s="${st}"><v>${val}</v></c>`;
+  const sty = (normal, lastSt) => last ? lastSt : normal;
+  let x = `<row r="${n}" ht="15" thickBot="1" x14ac:dyDescent="0.4">`;
+  x += S('A', r.nom, sty(115, 127));
+  x += r.date !== null ? N('B', r.date, 116) : S('B', NBSP, 116);
+  ['C', 'D', 'E', 'F'].forEach((c, i) => {
+    x += r.t[i] !== null ? N(c, r.t[i], sty(104, 129)) : S(c, NBSP, sty(124, 129));
+  });
+  x += N('G', r.cumul, 117);
+  x += S('H', r.dec, 118);
+  x += S('I', r.code || NBSP, sty(119, 130)) + S('J', r.aff || NBSP, sty(119, 130)) + S('K', r.zone || NBSP, sty(119, 130));
+  x += S('L', r.eqv || NBSP, sty(120, 131)) + S('M', r.comm || NBSP, sty(120, 132));
+  const flagStyle = { N: [121, 125], O: [121, 125], P: [122, 125], Q: [123, 126], R: [123, 126], S: [123, 126], T: [123, 126] };
+  ['N', 'O', 'P', 'Q', 'R', 'S', 'T'].forEach((c, i) => {
+    const on = r.f[i] === 1;
+    const [stOn, stOff] = flagStyle[c];
+    const lastOn = (c === 'Q' || i >= 3) ? 135 : 134, lastOff = (c === 'Q' || i >= 3) ? 135 : 133;
+    x += on ? N(c, 1, sty(stOn, lastOn)) : S(c, NBSP, sty(stOff, lastOff));
+  });
+  return x + '</row>';
+}
+
+async function importRhClasseur(file) {
+  if (!file) return;
+  try {
+    const found = await findRhSheet(file);
+    await fileDbPut(RH_KEY, file);
+    await fileDbPut(RH_META_KEY, { name: file.name, sheet: found.name, sheets: found.names });
+    toast('Fichier RH mémorisé ✓');
+    renderRhClasseurInfo();
+  } catch (e) { alert(e.message); }
+}
+
+// Retrouve l'onglet RH (celui dont A1 = « NOM PRENOM ») dans le classeur
+async function findRhSheet(blob) {
+  const zip = await JSZip.loadAsync(blob);
+  const wb = await zip.file('xl/workbook.xml').async('string');
+  const rels = await zip.file('xl/_rels/workbook.xml.rels').async('string');
+  const relMap = {};
+  (rels.match(/<Relationship\b[^>]*>/g) || []).forEach(t => { relMap[xlAttr(t, 'Id')] = xlAttr(t, 'Target'); });
+  const sstFile = zip.file('xl/sharedStrings.xml');
+  const sst = sstFile ? parseSharedStrings(await sstFile.async('string')) : [];
+  const tags = wb.match(/<sheet\b[^>]*\/>/g) || [];
+  const names = tags.map(t => xmlUnesc(xlAttr(t, 'name')));
+  for (const t of tags) {
+    const path = resolveXlPath('xl', relMap[xlAttr(t, 'r:id')]);
+    const f = zip.file(path);
+    if (!f) continue;
+    const xml = await f.async('string');
+    const rows = readSheetRows(xml.slice(0, xml.indexOf('</row>') + 6) + '', sst);
+    const first = rows[1] || {};
+    if (typeof first.A === 'string' && /NOM\s*PRENOM/i.test(first.A) && /DATE/i.test(first.B || '')) {
+      return { zip, path, name: xmlUnesc(xlAttr(t, 'name')), names, sst };
+    }
+  }
+  throw new Error("Aucun onglet RH reconnu (cellule A1 « NOM PRENOM », B1 « DATE ») dans ce fichier.");
+}
+
+async function renderRhClasseurInfo() {
+  const el = document.getElementById('rhClasseurInfo');
+  if (!el) return;
+  try {
+    const meta = await fileDbGet(RH_META_KEY);
+    el.textContent = meta ? `Fichier mémorisé : ${meta.name} · onglet « ${meta.sheet} »`
+                          : "Aucun fichier RH mémorisé : choisissez votre fichier Excel pour commencer.";
+  } catch (e) { el.textContent = ''; }
+}
+
+async function exportRHFichier(scope) {
+  if (typeof JSZip === 'undefined') { alert('Bibliothèque Excel non chargée (connexion requise la première fois).'); return; }
+  const base = await fileDbGet(RH_KEY).catch(() => null);
+  const meta = await fileDbGet(RH_META_KEY).catch(() => null);
+  if (!base) { alert("Choisissez d'abord votre fichier Excel RH (bouton « Choisir mon fichier »)."); return; }
+
+  // jours à exporter
+  const inScope = ds => {
+    const d = parseDateStr(ds);
+    if (scope === 'semaine') return toDateStr(getMonday(d)) === toDateStr(rhWeekMonday);
+    if (scope === 'mois') return d.getFullYear() === rhMonthDate.getFullYear() && d.getMonth() === rhMonthDate.getMonth();
+    return d.getFullYear() === rhMonthDate.getFullYear();
+  };
+  const dayKeys = Object.keys(state.days).filter(inScope).sort();
+  if (!dayKeys.length) { toast('Aucune journée enregistrée sur cette période'); return; }
+
+  const found = await findRhSheet(base);
+  const { zip, path, sst } = found;
+  let xml = await zip.file(path).async('string');
+  const rows = readSheetRows(xml, sst);
+  const old = Object.keys(rows).map(Number).filter(n => n >= 2).sort((a, b) => a - b)
+    .map(n => rhRowFromCells(rows[n])).filter(r => r.date !== null);
+
+  const newRows = dayKeys.map(ds => ({ ds, row: rhRowFromDay(ds, state.days[ds]) }));
+  const newSerials = new Set(newRows.map(x => x.row.date));
+  const clash = old.filter(r => newSerials.has(r.date));
+  let kept = old;
+  if (clash.length) {
+    const dates = Array.from(new Set(clash.map(r => r.date))).sort((a, b) => a - b)
+      .map(n => fmtDMY(new Date(Date.UTC(1899, 11, 30) + n * 86400000 + 12 * 3600000))).join(', ');
+    if (confirm(`Ces jours existent déjà dans votre fichier :\n${dates}\n\nOK = les remplacer par les données de l'application\nAnnuler = les conserver tels quels (ils ne seront pas ré-exportés)`)) {
+      kept = old.filter(r => !newSerials.has(r.date));
+    } else {
+      const have = new Set(old.map(r => r.date));
+      for (let i = newRows.length - 1; i >= 0; i--) if (have.has(newRows[i].row.date)) newRows.splice(i, 1);
+    }
+  }
+  const all = kept.map((r, i) => ({ r, k: i })).concat(newRows.map((x, i) => ({ r: x.row, k: kept.length + i })))
+    .sort((a, b) => (a.r.date - b.r.date) || (a.k - b.k)).map(x => x.r);
+  if (!all.length) { toast('Rien à exporter'); return; }
+
+  // reconstruction de l'onglet : en-tête (+3 colonnes hôtel) puis lignes
+  const headRow = (xml.match(/<row r="1"[ >][\s\S]*?<\/row>/) || [])[0];
+  if (!headRow) throw new Error("En-tête introuvable dans l'onglet RH");
+  const hdr = ['HOTEL BASSE SAISON', 'HOTEL HAUTE SAISON', 'HOTEL HORS FORFAIT'].map((t, i) =>
+    `<c r="${'RST'[i]}1" s="113" t="inlineStr"><is><t xml:space="preserve">${t}</t></is></c>`).join('');
+  const newHead = headRow.replace(/ spans="[^"]*"/, '').replace('</row>', hdr + '</row>');
+  const body = all.map((r, i) => rhRowXml(r, i + 2, i === all.length - 1)).join('');
+  xml = xml.replace(/<sheetData>[\s\S]*<\/sheetData>/, () => `<sheetData>${newHead}${body}</sheetData>`);
+  xml = xml.replace(/<dimension ref="[^"]*"\/>/, `<dimension ref="A1:T${all.length + 1}"/>`);
+  xml = xml.replace(/<col min="18" max="16384"([^>]*)\/>/, '<col min="18" max="20" width="22" style="114" customWidth="1"/><col min="21" max="16384"$1/>');
+  zip.file(path, xml);
+
+  const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  try { await fileDbPut(RH_KEY, blob); } catch (e) { console.error(e); }
+  const fileName = (meta && meta.name) || 'RH.xlsx';
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = fileName;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+  toast(`Onglet « ${found.name} » mis à jour : ${newRows.length} jour(s) ajouté(s) ✓`);
+}
+
+function initRhFichierEvents() {
+  const inp = document.getElementById('rhClasseurFile');
+  document.getElementById('btnRhClasseur').addEventListener('click', () => inp.click());
+  inp.addEventListener('change', e => { importRhClasseur(e.target.files[0]); e.target.value = ''; });
+  document.getElementById('btnRhClasseurDel').addEventListener('click', async () => {
+    if (!confirm('Oublier le fichier RH mémorisé ?')) return;
+    await fileDbDel(RH_KEY).catch(() => {});
+    await fileDbDel(RH_META_KEY).catch(() => {});
+    renderRhClasseurInfo();
+  });
+  document.getElementById('btnRhFichier').addEventListener('click', () => {
+    exportRHFichier(document.getElementById('rhFichierScope').value).catch(e => {
+      console.error(e);
+      alert('Export impossible : ' + e.message);
+    });
+  });
+  renderRhClasseurInfo();
+}
+
+/* ---------------------------------------------------------------------- */
 /* Init                                                                     */
 /* ---------------------------------------------------------------------- */
 
@@ -1950,6 +2169,7 @@ function init() {
   initParamEvents();
   initJustifEvents();
   initNdfExportEvents();
+  initRhFichierEvents();
   initBudgetSyncEvents();
   renderAll();
 }

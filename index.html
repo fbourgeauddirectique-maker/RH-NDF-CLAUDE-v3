@@ -491,6 +491,23 @@ nav.tabbar{
     </div>
 
     <div class="card">
+      <h2>Fichier Excel RH</h2>
+      <div class="hint" style="margin:0 0 8px;">Remplit l'onglet RH de votre fichier (nom, date, horaires, cumuls, mission, affectation, zone, équipe / voiture, commentaires, TR, IT, repas, hôtels). Les autres onglets restent identiques.</div>
+      <div id="rhClasseurInfo" class="hint" style="margin:0 0 8px;"></div>
+      <input type="file" id="rhClasseurFile" accept=".xlsx" hidden>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <button class="btn btn-ghost btn-sm" id="btnRhClasseur" style="flex:1;">📂 Choisir mon fichier</button>
+        <button class="btn btn-ghost btn-sm" id="btnRhClasseurDel">🗑</button>
+      </div>
+      <select id="rhFichierScope" class="scope-sel">
+        <option value="semaine">Semaine affichée</option>
+        <option value="mois">Mois affiché</option>
+        <option value="annee">Année affichée</option>
+      </select>
+      <button class="btn btn-primary" id="btnRhFichier" style="width:100%;margin-top:10px;">📊 Remplir le fichier RH</button>
+    </div>
+
+    <div class="card">
       <h2>Solde d'heures <span class="mono" id="soldeBase" style="font-size:12px;font-weight:700;opacity:.7;"></span></h2>
       <div id="soldeBlocks"></div>
       <div class="hint">Écart = heures comptées − heures dues. Férié et maladie comptent comme une journée complète ; récup : journée due non travaillée (le solde baisse) ; congés : neutres. Créez des missions « Férié » et « Maladie » dans Paramètres pour que ces jours soient reconnus. Seules les journées enregistrées sont comptées.</div>

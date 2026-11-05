@@ -936,6 +936,10 @@ function renderNDF() {
           <label>Forfait spécial</label>
           <input type="number" step="0.01" placeholder="0.00" data-fs="${ds}" value="${day.forfaitSpecial.montant || ''}">
         </div>
+        <div class="ndf-line">
+          <label>SUP</label>
+          <input type="text" placeholder="Commentaire sur le forfait spécial" data-supnote="${ds}" value="${escapeHtml(day.forfaitSpecial.note || '')}">
+        </div>
         <div class="sub">
           <span>Prévu déduit : ${money(dayForecastDeduction(day))}</span>
           <span>Réel déduit : ${money(dayRealExpense(day))}</span>
@@ -1003,6 +1007,14 @@ function renderNDF() {
       state.days[ds].forfaitSpecial.montant = parseFloat(inp.value) || 0;
       saveState();
       renderNDF();
+    });
+  });
+
+  document.querySelectorAll('[data-supnote]').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const ds = inp.dataset.supnote;
+      state.days[ds].forfaitSpecial.note = inp.value.trim();
+      saveState();
     });
   });
 
@@ -1968,59 +1980,105 @@ function readSheetRows(xml, sst) {
   return rows;
 }
 
-function rhRowFromCells(c) {
-  const txt = k => (typeof c[k] === 'string' ? c[k].replace(/ /g, ' ').trim() : '');
-  const tm = k => (typeof c[k] === 'number' ? c[k] : null);
-  const one = k => (c[k] === 1 || txt(k) === '1') ? 1 : 0;
-  return {
-    nom: txt('A') || RH_NOM, date: typeof c.B === 'number' ? c.B : null,
-    t: [tm('C'), tm('D'), tm('E'), tm('F')], cumul: typeof c.G === 'number' ? c.G : 0,
-    dec: txt('H'), code: txt('I'), aff: txt('J'), zone: txt('K'), eqv: txt('L'), comm: txt('M'),
-    f: [one('N'), one('O'), one('P'), one('Q'), one('R'), one('S'), one('T')]
-  };
+function stripAccents(s) { return s.normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+function normHeader(t) {
+  return stripAccents(String(t || '')).replace(/ /g, ' ').replace(/\s+/g, ' ').trim().toUpperCase();
 }
 
-function stripAccents(s) { return s.normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+// Champs de l'application -> en-têtes reconnus dans l'onglet (comparaison normalisée)
+const RH_HEADERS = {
+  semaine: ['SEMAINE'], nom: ['NOM PRENOM'], date: ['DATE'],
+  debutAM: ['AM DEBUT'], finAM: ['AM FIN'], debutPM: ['PM DEBUT'], finPM: ['PM FIN'],
+  cumul: ['CUMUL'], decimal: ['CUMUL DECIMAL'],
+  code: ['CODE MISSION'], aff: ['AFFECTATION'], zone: ['ZONE'], eqv: ['EQUIPE/VOITURE', 'EQUIPE / VOITURE'], comm: ['COMMENTAIRES'],
+  TR: ['TICKET RESTAURANT'], IT: ['INDEMNITE DE TRANSPORT'], MIDI: ['REPAS MIDI'], SOIR: ['REPAS SOIR'],
+  HOTEL_FORFAIT: ['FORFAIT HOTEL'], FS: ['FORFAIT SUP (MONTANT)'], SUP: ['SUP'], HOTEL_HF_MONTANT: ['HORS FORFAIT'], HOTEL_HF_LIBELLE: ['SUP HORS FORFAIT'],
+  HOTEL_BS: ['HOTEL BASSE SAISON'], HOTEL_HS: ['HOTEL HAUTE SAISON'], HOTEL_HF: ['HOTEL HORS FORFAIT']
+};
+const RH_TIME_FIELDS = ['debutAM', 'finAM', 'debutPM', 'finPM'];
 
-function rhRowFromDay(ds, day) {
-  const toFrac = t => { const m = toMinutes(t); return (t && m !== null && m !== undefined) ? m / 1440 : null; };
-  const worked = dayWorkedMinutes(day);
-  const hh = day.horaires;
-  const up = v => stripAccents((v || '').trim()).toUpperCase();
+function rhValuesFromDay(ds, day) {
+  const frac = t => { const m = toMinutes(t); return (t && m !== null && m !== undefined) ? m / 1440 : 0; };
+  const hh = day.horaires, c = day.cases;
+  const hfMontant = c.HOTEL_HF ? (parseFloat(day.hotelHF) || 0) : 0;
+  const fs = day.forfaitSpecial || {};
   return {
     nom: RH_NOM, date: xlSerial(parseDateStr(ds)),
-    t: [toFrac(hh.debutAM), toFrac(hh.finAM), toFrac(hh.debutPM), toFrac(hh.finPM)],
-    cumul: worked / 1440, dec: (worked / 60).toFixed(2),
-    code: up(day.mission).replace(/\s+/g, ''), aff: up(day.affectation), zone: up(day.zone),
-    eqv: [day.equipe, day.voiture].map(x => (x || '').trim()).filter(Boolean).join(' / ').toUpperCase(),
-    comm: (day.commentaire || '').trim(),
-    f: ['TR', 'IT', 'MIDI', 'SOIR', 'HOTEL_BS', 'HOTEL_HS', 'HOTEL_HF'].map(k => day.cases[k] ? 1 : 0)
+    debutAM: frac(hh.debutAM), finAM: frac(hh.finAM), debutPM: frac(hh.debutPM), finPM: frac(hh.finPM),
+    code: (day.mission || '').trim(), aff: (day.affectation || '').trim(), zone: (day.zone || '').trim(),
+    eqv: [day.equipe, day.voiture].map(x => (x || '').trim()).filter(Boolean).join(' / '),
+    comm: '',                                           // colonne COMMENTAIRES laissée vide
+    TR: c.TR ? 1 : 0, IT: c.IT ? 1 : 0, MIDI: c.MIDI ? 1 : 0, SOIR: c.SOIR ? 1 : 0,
+    HOTEL_FORFAIT: (c.HOTEL_BS || c.HOTEL_HS) ? 1 : 0,
+    FS: parseFloat(fs.montant) || 0,                    // Forfait SUP (Montant)
+    SUP: (fs.note || '').trim(),                        // commentaire SUP saisi dans NDF
+    HOTEL_HF_MONTANT: hfMontant,                        // montant hôtel hors forfait
+    HOTEL_HF_LIBELLE: hfMontant > 0 ? 'Hotel Hors Forfait' : '',
+    HOTEL_BS: c.HOTEL_BS ? 1 : 0, HOTEL_HS: c.HOTEL_HS ? 1 : 0, HOTEL_HF: c.HOTEL_HF ? 1 : 0
   };
 }
 
-function rhRowXml(r, n, last) {
-  const S = (ref, text, st) => `<c r="${ref}${n}" s="${st}" t="inlineStr"><is><t xml:space="preserve">${xmlEsc(text)}</t></is></c>`;
-  const N = (ref, val, st) => `<c r="${ref}${n}" s="${st}"><v>${val}</v></c>`;
-  const sty = (normal, lastSt) => last ? lastSt : normal;
-  let x = `<row r="${n}" ht="15" thickBot="1" x14ac:dyDescent="0.4">`;
-  x += S('A', r.nom, sty(115, 127));
-  x += r.date !== null ? N('B', r.date, 116) : S('B', NBSP, 116);
-  ['C', 'D', 'E', 'F'].forEach((c, i) => {
-    x += r.t[i] !== null ? N(c, r.t[i], sty(104, 129)) : S(c, NBSP, sty(124, 129));
+// Lit les lignes avec valeurs ET styles : { rowNumber -> { COL -> { v, s } } }
+function readSheetFull(xml, sst) {
+  const rows = {};
+  (xml.match(/<row\b[^>]*>[\s\S]*?<\/row>/g) || []).forEach(rx => {
+    const r = parseInt(rx.match(/<row r="(\d+)"/)[1], 10);
+    const cells = {};
+    (rx.match(/<c\b[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g) || []).forEach(cx => {
+      const col = cx.match(/ r="([A-Z]+)\d+"/)[1];
+      const t = (cx.match(/ t="(\w+)"/) || [])[1];
+      const st = (cx.match(/ s="(\d+)"/) || [])[1];
+      const v = (cx.match(/<v>([\s\S]*?)<\/v>/) || [])[1];
+      let val;
+      if (t === 's' && v !== undefined) val = sst[parseInt(v, 10)];
+      else if (t === 'inlineStr') val = xmlUnesc((cx.match(/<t[^>]*>([\s\S]*?)<\/t>/) || [])[1] || '');
+      else if (v !== undefined) val = (t === 'str') ? xmlUnesc(v) : parseFloat(v);
+      cells[col] = { v: val, s: st !== undefined ? parseInt(st, 10) : null };
+    });
+    rows[r] = cells;
   });
-  x += N('G', r.cumul, 117);
-  x += S('H', r.dec, 118);
-  x += S('I', r.code || NBSP, sty(119, 130)) + S('J', r.aff || NBSP, sty(119, 130)) + S('K', r.zone || NBSP, sty(119, 130));
-  x += S('L', r.eqv || NBSP, sty(120, 131)) + S('M', r.comm || NBSP, sty(120, 132));
-  const flagStyle = { N: [121, 125], O: [121, 125], P: [122, 125], Q: [123, 126], R: [123, 126], S: [123, 126], T: [123, 126] };
-  ['N', 'O', 'P', 'Q', 'R', 'S', 'T'].forEach((c, i) => {
-    const on = r.f[i] === 1;
-    const [stOn, stOff] = flagStyle[c];
-    const lastOn = 134, lastOff = 133;   // dernière ligne : 134 = chiffre rouge, 133 = case vide (bordure double)
-    x += on ? N(c, 1, sty(stOn, lastOn)) : S(c, NBSP, sty(stOff, lastOff));
-  });
-  return x + '</row>';
+  return rows;
 }
+
+const isOffStyleOnly = () => false;   // (réservé)
+const isOffValue = v => v === undefined || v === null || v === 0 ||
+  (typeof v === 'string' && v.replace(/ /g, '').trim() === '');
+
+// Mémorise, colonne par colonne, les styles « ligne normale / dernière ligne » × « renseigné / vide »
+function learnRhStyles(rows, dataRowNums, cols) {
+  const st = {};
+  cols.forEach(c => { st[c] = {}; });
+  dataRowNums.forEach((n, i) => {
+    const last = i === dataRowNums.length - 1;
+    cols.forEach(c => {
+      const cell = rows[n][c];
+      if (!cell || cell.s === null) return;
+      const key = (last ? 'last' : 'norm') + (isOffValue(cell.v) ? 'Off' : 'On');
+      if (st[c][key] === undefined) st[c][key] = cell.s;
+    });
+  });
+  const learned = {};
+  cols.forEach(c => { learned[c] = new Set(Object.keys(st[c])); });
+  cols.forEach((c, i) => {
+    const o = st[c];
+    // un état « renseigné » jamais vu dans cette colonne emprunte celui de la colonne la plus proche à gauche
+    ['normOn', 'lastOn'].forEach(k => {
+      if (o[k] === undefined) {
+        for (let j = i - 1; j >= 0; j--) {
+          if (learned[cols[j]].has(k) && !isOffStyleOnly(cols[j])) { o[k] = st[cols[j]][k]; o[k + '_borrowed'] = true; break; }
+        }
+      }
+    });
+    const any = o.normOn ?? o.normOff ?? o.lastOn ?? o.lastOff ?? null;
+    o.normOn = o.normOn ?? o.normOff ?? any;
+    o.normOff = o.normOff ?? o.normOn;
+    o.lastOn = o.lastOn ?? o.lastOff ?? o.normOn;
+    o.lastOff = o.lastOff ?? o.lastOn ?? o.normOff;
+  });
+  return st;
+}
+
+function colLetter(n) { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
 
 async function importRhClasseur(file) {
   if (!file) return;
@@ -2033,7 +2091,7 @@ async function importRhClasseur(file) {
   } catch (e) { alert(e.message); }
 }
 
-// Retrouve l'onglet RH (celui dont A1 = « NOM PRENOM ») dans le classeur
+// Retrouve l'onglet RH (en-tête contenant « NOM PRENOM » et « DATE ») dans le classeur
 async function findRhSheet(blob) {
   const zip = await JSZip.loadAsync(blob);
   const wb = await zip.file('xl/workbook.xml').async('string');
@@ -2049,13 +2107,13 @@ async function findRhSheet(blob) {
     const f = zip.file(path);
     if (!f) continue;
     const xml = await f.async('string');
-    const rows = readSheetRows(xml.slice(0, xml.indexOf('</row>') + 6) + '', sst);
-    const first = rows[1] || {};
-    if (typeof first.A === 'string' && /NOM\s*PRENOM/i.test(first.A) && /DATE/i.test(first.B || '')) {
+    const head = readSheetFull(xml.slice(0, xml.indexOf('</row>') + 6), sst)[1] || {};
+    const heads = Object.keys(head).map(c => normHeader(head[c].v));
+    if (heads.includes('NOM PRENOM') && heads.includes('DATE')) {
       return { zip, path, name: xmlUnesc(xlAttr(t, 'name')), names, sst };
     }
   }
-  throw new Error("Aucun onglet RH reconnu (cellule A1 « NOM PRENOM », B1 « DATE ») dans ce fichier.");
+  throw new Error("Aucun onglet RH reconnu (en-tête avec « NOM PRENOM » et « DATE ») dans ce fichier.");
 }
 
 async function renderRhClasseurInfo() {
@@ -2074,7 +2132,6 @@ async function exportRHFichier(scope) {
   const meta = await fileDbGet(RH_META_KEY).catch(() => null);
   if (!base) { alert("Choisissez d'abord votre fichier Excel RH (bouton « Choisir mon fichier »)."); return; }
 
-  // jours à exporter
   const inScope = ds => {
     const d = parseDateStr(ds);
     if (scope === 'semaine') return toDateStr(getMonday(d)) === toDateStr(rhWeekMonday);
@@ -2087,39 +2144,121 @@ async function exportRHFichier(scope) {
   const found = await findRhSheet(base);
   const { zip, path, sst } = found;
   let xml = await zip.file(path).async('string');
-  const rows = readSheetRows(xml, sst);
-  const old = Object.keys(rows).map(Number).filter(n => n >= 2).sort((a, b) => a - b)
-    .map(n => rhRowFromCells(rows[n])).filter(r => r.date !== null);
+  const rows = readSheetFull(xml, sst);
 
-  const newRows = dayKeys.map(ds => ({ ds, row: rhRowFromDay(ds, state.days[ds]) }));
-  const newSerials = new Set(newRows.map(x => x.row.date));
-  const clash = old.filter(r => newSerials.has(r.date));
-  let kept = old;
+  // colonnes d'après la ligne d'en-tête
+  const head = rows[1];
+  const cols = Object.keys(head).sort((a, b) => colIdx(a) - colIdx(b));
+  const colOf = {};
+  Object.keys(RH_HEADERS).forEach(f => {
+    const c = cols.find(c => RH_HEADERS[f].includes(normHeader(head[c].v)));
+    if (c) colOf[f] = c;
+  });
+  if (!colOf.date) throw new Error('Colonne DATE introuvable dans l\'onglet RH');
+  const fieldOfCol = {};
+  Object.keys(colOf).forEach(f => { fieldOfCol[colOf[f]] = f; });
+
+  // lignes existantes (celles qui ont une date)
+  const rowNums = Object.keys(rows).map(Number).filter(n => n >= 2 && rows[n][colOf.date] && typeof rows[n][colOf.date].v === 'number').sort((a, b) => a - b);
+  const styles = learnRhStyles(rows, rowNums, cols);
+  if (!rowNums.length) throw new Error("Aucune ligne existante dans l'onglet : le style des lignes ne peut pas être repris. Saisissez au moins une ligne dans Excel.");
+  const old = rowNums.map(n => { const o = {}; cols.forEach(c => { if (rows[n][c]) o[c] = rows[n][c].v; }); return o; });
+
+  // lignes de l'application
+  const newRows = dayKeys.map(ds => {
+    const v = rhValuesFromDay(ds, state.days[ds]);
+    const o = {};
+    Object.keys(colOf).forEach(f => { if (f in v) o[colOf[f]] = v[f]; });
+    return o;
+  });
+  const dateCol = colOf.date;
+  const newSerials = new Set(newRows.map(r => r[dateCol]));
+  const clash = old.filter(r => newSerials.has(r[dateCol]));
+  let kept = old, toAdd = newRows;
   if (clash.length) {
-    const dates = Array.from(new Set(clash.map(r => r.date))).sort((a, b) => a - b)
+    const dates = Array.from(new Set(clash.map(r => r[dateCol]))).sort((a, b) => a - b)
       .map(n => fmtDMY(new Date(Date.UTC(1899, 11, 30) + n * 86400000 + 12 * 3600000))).join(', ');
     if (confirm(`Ces jours existent déjà dans votre fichier :\n${dates}\n\nOK = les remplacer par les données de l'application\nAnnuler = les conserver tels quels (ils ne seront pas ré-exportés)`)) {
-      kept = old.filter(r => !newSerials.has(r.date));
+      kept = old.filter(r => !newSerials.has(r[dateCol]));
     } else {
-      const have = new Set(old.map(r => r.date));
-      for (let i = newRows.length - 1; i >= 0; i--) if (have.has(newRows[i].row.date)) newRows.splice(i, 1);
+      const have = new Set(old.map(r => r[dateCol]));
+      toAdd = newRows.filter(r => !have.has(r[dateCol]));
     }
   }
-  const all = kept.map((r, i) => ({ r, k: i })).concat(newRows.map((x, i) => ({ r: x.row, k: kept.length + i })))
-    .sort((a, b) => (a.r.date - b.r.date) || (a.k - b.k)).map(x => x.r);
+  const all = kept.map((r, i) => ({ r, k: i })).concat(toAdd.map((r, i) => ({ r, k: kept.length + i })))
+    .sort((a, b) => (a.r[dateCol] - b.r[dateCol]) || (a.k - b.k)).map(x => x.r);
   if (!all.length) { toast('Rien à exporter'); return; }
 
-  // reconstruction de l'onglet : en-tête (+3 colonnes hôtel) puis lignes
+  // format « 0,00 » pour le cumul décimal si la cellule est encore au format Standard
+  let stylesXml = await zip.file('xl/styles.xml').async('string');
+  const decStyleMap = {};
+  [colOf.decimal, colOf.FS, colOf.HOTEL_HF_MONTANT].filter(Boolean).forEach(col => {
+    ['normOn', 'normOff', 'lastOn', 'lastOff'].forEach(k => {
+      const sid = styles[col][k];
+      if (sid === null || sid === undefined) return;
+      if (!(sid in decStyleMap)) {
+        const r = withNumFmt(stylesXml, sid, 2);
+        stylesXml = r.xml; decStyleMap[sid] = r.id;
+      }
+      styles[col][k] = decStyleMap[sid];
+    });
+  });
+
+  const maxCol = cols[cols.length - 1];
+  const lastIdx = colIdx(maxCol);
+  const timeCols = new Set(RH_TIME_FIELDS.map(f => colOf[f]).filter(Boolean));
+  const fmtCached = x => String(Math.round(x * 1e12) / 1e12);
+  const body = all.map((r, i) => {
+    const n = i + 2, last = i === all.length - 1;
+    const num = c => (typeof r[c] === 'number' ? r[c] : 0);
+    const tm = f => (colOf[f] ? num(colOf[f]) : 0);
+    const cumulVal = (tm('finPM') - tm('debutPM')) + (tm('finAM') - tm('debutAM'));
+    let x = `<row r="${n}" ht="15" thickBot="1" x14ac:dyDescent="0.4">`;
+    for (let k = 1; k <= lastIdx; k++) {
+      const c = colLetter(k);
+      if (!cols.includes(c)) continue;
+      const f = fieldOfCol[c];
+      let val = r[c];
+      const sty = (isOff) => styles[c][(last ? 'last' : 'norm') + (isOff ? 'Off' : 'On')];
+      const sAttr = isOff => { const s = sty(isOff); return s === null || s === undefined ? '' : ` s="${s}"`; };
+      if (f === 'semaine') {
+        const wk = typeof r[dateCol] === 'number'
+          ? getISOWeekInfo(new Date(Date.UTC(1899, 11, 30) + r[dateCol] * 86400000 + 12 * 3600000)).week : null;
+        x += `<c r="${c}${n}"${sAttr(false)} t="str"><f>"S"&amp;TEXT(_xlfn.ISOWEEKNUM(${dateCol}${n}),"00")</f><v>${wk ? 'S' + String(wk).padStart(2, '0') : ''}</v></c>`;
+      } else if (f === 'cumul' && colOf.debutAM && colOf.finAM && colOf.debutPM && colOf.finPM) {
+        x += `<c r="${c}${n}"${sAttr(false)}><f>(${colOf.finPM}${n}-${colOf.debutPM}${n})+(${colOf.finAM}${n}-${colOf.debutAM}${n})</f><v>${fmtCached(cumulVal)}</v></c>`;
+      } else if (f === 'decimal' && colOf.cumul) {
+        x += `<c r="${c}${n}"${sAttr(false)}><f>ROUND(${colOf.cumul}${n}*24,2)</f><v>${fmtCached(Math.round(cumulVal * 24 * 100) / 100)}</v></c>`;
+      } else if (timeCols.has(c)) {
+        const v = typeof val === 'number' ? val : 0;
+        x += `<c r="${c}${n}"${sAttr(v === 0)}><v>${fmtCached(v)}</v></c>`;
+      } else if (typeof val === 'number' && val !== 0) {
+        x += `<c r="${c}${n}"${sAttr(false)}><v>${fmtCached(val)}</v></c>`;
+      } else {
+        const t = (val === undefined || val === null || val === 0 || String(val).trim() === '') ? NBSP : String(val);
+        x += `<c r="${c}${n}"${sAttr(t === NBSP)} t="inlineStr"><is><t xml:space="preserve">${xmlEsc(t)}</t></is></c>`;
+      }
+    }
+    return x + '</row>';
+  }).join('');
+
   const headRow = (xml.match(/<row r="1"[ >][\s\S]*?<\/row>/) || [])[0];
-  if (!headRow) throw new Error("En-tête introuvable dans l'onglet RH");
-  const hdr = ['HOTEL BASSE SAISON', 'HOTEL HAUTE SAISON', 'HOTEL HORS FORFAIT'].map((t, i) =>
-    `<c r="${'RST'[i]}1" s="113" t="inlineStr"><is><t xml:space="preserve">${t}</t></is></c>`).join('');
-  const newHead = headRow.replace(/ spans="[^"]*"/, '').replace('</row>', hdr + '</row>');
-  const body = all.map((r, i) => rhRowXml(r, i + 2, i === all.length - 1)).join('');
-  xml = xml.replace(/<sheetData>[\s\S]*<\/sheetData>/, () => `<sheetData>${newHead}${body}</sheetData>`);
-  xml = xml.replace(/<dimension ref="[^"]*"\/>/, `<dimension ref="A1:T${all.length + 1}"/>`);
-  xml = xml.replace(/<col min="18" max="16384"([^>]*)\/>/, '<col min="18" max="20" width="22" style="114" customWidth="1"/><col min="21" max="16384"$1/>');
+  xml = xml.replace(/<sheetData>[\s\S]*<\/sheetData>/, () => `<sheetData>${headRow}${body}</sheetData>`);
+  xml = xml.replace(/<dimension ref="[^"]*"\/>/, `<dimension ref="A1:${maxCol}${all.length + 1}"/>`);
   zip.file(path, xml);
+  zip.file('xl/styles.xml', stylesXml);
+  // recalcul à l'ouverture (formules ajoutées) ; la chaîne de calcul devient obsolète
+  let wbXml = await zip.file('xl/workbook.xml').async('string');
+  if (/<calcPr\b[^>]*\/>/.test(wbXml)) wbXml = wbXml.replace(/<calcPr\b([^>]*?)\/>/, (m, a) => /fullCalcOnLoad/.test(a) ? m : `<calcPr${a} fullCalcOnLoad="1"/>`);
+  else wbXml = wbXml.replace('</workbook>', '<calcPr fullCalcOnLoad="1"/></workbook>');
+  zip.file('xl/workbook.xml', wbXml);
+  if (zip.file('xl/calcChain.xml')) {
+    zip.remove('xl/calcChain.xml');
+    const rl = await zip.file('xl/_rels/workbook.xml.rels').async('string');
+    zip.file('xl/_rels/workbook.xml.rels', rl.replace(/<Relationship\b[^>]*calcChain[^>]*\/>/, ''));
+    const ctx = await zip.file('[Content_Types].xml').async('string');
+    zip.file('[Content_Types].xml', ctx.replace(/<Override\b[^>]*calcChain[^>]*\/>/, ''));
+  }
 
   const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   try { await fileDbPut(RH_KEY, blob); } catch (e) { console.error(e); }
@@ -2129,7 +2268,26 @@ async function exportRHFichier(scope) {
   a.href = url; a.download = fileName;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
-  toast(`Onglet « ${found.name} » mis à jour : ${newRows.length} jour(s) ajouté(s) ✓`);
+  toast(`Onglet « ${found.name} » mis à jour : ${toAdd.length} jour(s) ajouté(s) ✓`);
+  const missing = ['HOTEL_FORFAIT', 'HOTEL_HF'].filter(f => !colOf[f] && !colOf[f === 'HOTEL_FORFAIT' ? 'HOTEL_BS' : 'HOTEL_HF']);
+  if (missing.includes('HOTEL_HF') && dayKeys.some(ds => state.days[ds].cases.HOTEL_HF)) {
+    setTimeout(() => alert("Information : des journées avec « Hôtel hors forfait » ont été exportées, mais votre onglet n'a pas de colonne dédiée : cette case n'est pas reportée."), 400);
+  }
+}
+
+// Ajoute (ou réutilise) une variante d'un style de cellule avec un format de nombre donné
+function withNumFmt(stylesXml, xfIndex, numFmtId) {
+  const m = stylesXml.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/);
+  const xfs = m[2].match(/<xf\b[^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g);
+  const xf = xfs[xfIndex];
+  if (!xf) return { xml: stylesXml, id: xfIndex };
+  const cur = parseInt((xf.match(/numFmtId="(\d+)"/) || [0, 0])[1], 10);
+  if (cur !== 0) return { xml: stylesXml, id: xfIndex };   // déjà formaté par l'utilisateur
+  let nx = xf.replace(/numFmtId="\d+"/, `numFmtId="${numFmtId}"`);
+  if (!/applyNumberFormat=/.test(nx)) nx = nx.replace('<xf ', '<xf applyNumberFormat="1" ');
+  const id = xfs.length;
+  const xml = stylesXml.replace(m[0], `<cellXfs count="${id + 1}">${m[2]}${nx}</cellXfs>`);
+  return { xml, id };
 }
 
 function initRhFichierEvents() {

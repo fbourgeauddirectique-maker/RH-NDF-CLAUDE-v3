@@ -80,6 +80,8 @@ function defaultState() {
       affectations: [],
       zones: [],
       voitures: [],
+      supFS: [],   // motifs proposés dans la ligne SUP du forfait spécial
+      supHF: [],   // motifs proposés dans la ligne SUP du hors forfait
       categoriesHF: DEFAULT_CATEGORIES_HF.slice(),   // catégories des justificatifs hors forfait
       categoriesHFCol: sanitizeCatCols(null, DEFAULT_CATEGORIES_HF), // catégorie -> colonne Excel (C..J)
       tarifs: { ...DEFAULT_TARIFS },
@@ -105,6 +107,8 @@ function loadState() {
         affectations: parsed.settings?.affectations || [],
         zones: parsed.settings?.zones || [],
         voitures: parsed.settings?.voitures || [],
+        supFS: Array.isArray(parsed.settings?.supFS) ? parsed.settings.supFS : [],
+        supHF: Array.isArray(parsed.settings?.supHF) ? parsed.settings.supHF : [],
         categoriesHF: sanitizeCategories(parsed.settings?.categoriesHF),
         categoriesHFCol: sanitizeCatCols(parsed.settings?.categoriesHFCol, sanitizeCategories(parsed.settings?.categoriesHF)),
         tarifs: { ...base.settings.tarifs, ...(parsed.settings?.tarifs || {}) },
@@ -282,6 +286,13 @@ function renderRHTotals() {
   document.getElementById('rhMoisTotalHours').textContent = fmtHoursHM(monthTotalHours(rhMonthDate));
 
   renderSolde();
+}
+
+function supOptions(items, current) {
+  let list = items.slice();
+  if (current && !list.includes(current)) list = [current, ...list];
+  return '<option value="">-- Motif --</option>' +
+    list.map(it => `<option value="${escapeHtml(it)}" ${it === current ? 'selected' : ''}>${escapeHtml(it)}</option>`).join('');
 }
 
 function fillSelect(select, items, currentValue) {
@@ -933,12 +944,16 @@ function renderNDF() {
           <input type="number" step="0.01" placeholder="0.00" data-horsforfait="${ds}" value="${day.horsForfait.montant || ''}">
         </div>
         <div class="ndf-line">
+          <label>SUP</label>
+          <select data-suphf="${ds}">${supOptions(state.settings.supHF, day.horsForfait.note || '')}</select>
+        </div>
+        <div class="ndf-line">
           <label>Forfait spécial</label>
           <input type="number" step="0.01" placeholder="0.00" data-fs="${ds}" value="${day.forfaitSpecial.montant || ''}">
         </div>
         <div class="ndf-line">
           <label>SUP</label>
-          <input type="text" placeholder="Commentaire sur le forfait spécial" data-supnote="${ds}" value="${escapeHtml(day.forfaitSpecial.note || '')}">
+          <select data-supnote="${ds}">${supOptions(state.settings.supFS, day.forfaitSpecial.note || '')}</select>
         </div>
         <div class="sub">
           <span>Prévu déduit : ${money(dayForecastDeduction(day))}</span>
@@ -1014,6 +1029,13 @@ function renderNDF() {
     inp.addEventListener('change', () => {
       const ds = inp.dataset.supnote;
       state.days[ds].forfaitSpecial.note = inp.value.trim();
+      saveState();
+    });
+  });
+  document.querySelectorAll('[data-suphf]').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const ds = inp.dataset.suphf;
+      state.days[ds].horsForfait.note = inp.value.trim();
       saveState();
     });
   });
@@ -1124,6 +1146,8 @@ function renderParam() {
   renderListEditor('listZones', 'zones');
   renderListEditor('listVoitures', 'voitures');
   renderListEditor('listCategoriesHF', 'categoriesHF');
+  renderListEditor('listSupFS', 'supFS');
+  renderListEditor('listSupHF', 'supHF');
 
   const t = state.settings.tarifs;
   document.getElementById('tarifIT').value = t.IT;
@@ -1142,7 +1166,7 @@ function initParamEvents() {
   document.querySelectorAll('[data-add]').forEach(btn => {
     btn.addEventListener('click', () => {
       const key = btn.dataset.add;
-      const inputId = { missions: 'newMission', equipes: 'newEquipe', affectations: 'newAffectation', zones: 'newZone', voitures: 'newVoiture', categoriesHF: 'newCategorieHF' }[key];
+      const inputId = { missions: 'newMission', equipes: 'newEquipe', affectations: 'newAffectation', zones: 'newZone', voitures: 'newVoiture', categoriesHF: 'newCategorieHF', supFS: 'newSupFS', supHF: 'newSupHF' }[key];
       const input = document.getElementById(inputId);
       const val = input.value.trim();
       if (!val) return;
@@ -1210,6 +1234,8 @@ function initParamEvents() {
             affectations: imported.settings.affectations || [],
             zones: imported.settings.zones || [],
             voitures: imported.settings.voitures || [],
+            supFS: Array.isArray(imported.settings.supFS) ? imported.settings.supFS : [],
+            supHF: Array.isArray(imported.settings.supHF) ? imported.settings.supHF : [],
             categoriesHF: sanitizeCategories(imported.settings.categoriesHF),
             categoriesHFCol: sanitizeCatCols(imported.settings.categoriesHFCol, sanitizeCategories(imported.settings.categoriesHF)),
             tarifs: { ...DEFAULT_TARIFS, ...(imported.settings.tarifs || {}) },
@@ -2002,6 +2028,11 @@ function rhValuesFromDay(ds, day) {
   const hh = day.horaires, c = day.cases;
   const hfMontant = c.HOTEL_HF ? (parseFloat(day.hotelHF) || 0) : 0;
   const fs = day.forfaitSpecial || {};
+  const hf = day.horsForfait || {};
+  const hfAutre = parseFloat(hf.montant) || 0;
+  const hfTotal = Math.round((hfMontant + hfAutre) * 100) / 100;
+  const hfNote = (hf.note || '').trim();
+  const hfLibelle = [hfMontant > 0 ? 'Hotel Hors Forfait' : '', hfNote].filter(Boolean).join(' / ');
   return {
     nom: RH_NOM, date: xlSerial(parseDateStr(ds)),
     debutAM: frac(hh.debutAM), finAM: frac(hh.finAM), debutPM: frac(hh.debutPM), finPM: frac(hh.finPM),
@@ -2012,8 +2043,8 @@ function rhValuesFromDay(ds, day) {
     HOTEL_FORFAIT: (c.HOTEL_BS || c.HOTEL_HS) ? 1 : 0,
     FS: parseFloat(fs.montant) || 0,                    // Forfait SUP (Montant)
     SUP: (fs.note || '').trim(),                        // commentaire SUP saisi dans NDF
-    HOTEL_HF_MONTANT: hfMontant,                        // montant hôtel hors forfait
-    HOTEL_HF_LIBELLE: hfMontant > 0 ? 'Hotel Hors Forfait' : '',
+    HOTEL_HF_MONTANT: hfTotal,                          // hôtel hors forfait + hors forfait
+    HOTEL_HF_LIBELLE: hfLibelle,                        // « Hotel Hors Forfait » et/ou motif SUP du hors forfait
     HOTEL_BS: c.HOTEL_BS ? 1 : 0, HOTEL_HS: c.HOTEL_HS ? 1 : 0, HOTEL_HF: c.HOTEL_HF ? 1 : 0
   };
 }

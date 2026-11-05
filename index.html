@@ -281,6 +281,7 @@ button{font-family:inherit;cursor:pointer;}
 .ndf-day .hd .dd{font-size:11.5px;color:var(--ink-soft);}
 .ndf-line{display:flex;align-items:center;gap:8px;margin-bottom:7px;}
 .ndf-line label{flex:0 0 92px;font-size:12.5px;font-weight:600;color:var(--ink-soft);}
+.ndf-line select{flex:1;min-width:0;padding:8px 9px;border:1px solid var(--line);border-radius:9px;font-size:15px;background:#fff;font-family:inherit;}
 .ndf-line input{flex:1;padding:8px 9px;border:1px solid var(--line);border-radius:9px;font-size:15px;background:#fff;font-family:inherit;}
 .ndf-line input:focus{border-color:var(--ndf-1);outline:none;box-shadow:0 0 0 3px rgba(240,151,59,.2);}
 .ndf-day .sub{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-soft);margin-top:7px;padding-top:7px;border-top:1px dashed var(--line);font-weight:600;}
@@ -485,12 +486,6 @@ nav.tabbar{
     </div>
 
     <div class="card" style="margin-top:12px;">
-      <h2>Journées enregistrées</h2>
-      <button class="btn btn-ghost btn-sm" id="btnExportExcel" style="width:100%;margin-bottom:10px;">📊 Exporter le relevé d'heures (Excel)</button>
-      <div id="rhHistory"></div>
-    </div>
-
-    <div class="card">
       <h2>Fichier Excel RH</h2>
       <div class="hint" style="margin:0 0 8px;">Remplit l'onglet RH de votre fichier (nom, date, horaires, cumuls, mission, affectation, zone, équipe / voiture, commentaires, TR, IT, repas, hôtels). Les autres onglets restent identiques.</div>
       <div id="rhClasseurInfo" class="hint" style="margin:0 0 8px;"></div>
@@ -505,6 +500,12 @@ nav.tabbar{
         <option value="annee">Année affichée</option>
       </select>
       <button class="btn btn-primary" id="btnRhFichier" style="width:100%;margin-top:10px;">📊 Remplir le fichier RH</button>
+    </div>
+
+    <div class="card">
+      <h2>Journées enregistrées</h2>
+      <button class="btn btn-ghost btn-sm" id="btnExportExcel" style="width:100%;margin-bottom:10px;">📊 Exporter le relevé d'heures (Excel)</button>
+      <div id="rhHistory"></div>
     </div>
 
     <div class="card">
@@ -697,6 +698,18 @@ nav.tabbar{
       <h2>Voitures</h2>
       <div id="listVoitures"></div>
       <div class="add-row"><input type="text" id="newVoiture" placeholder="Nouvelle voiture"><button data-add="voitures">+</button></div>
+    </div>
+
+    <div class="card">
+      <h2>SUP · forfait spécial</h2>
+      <div id="listSupFS"></div>
+      <div class="add-row"><input type="text" id="newSupFS" placeholder="Nouveau motif"><button data-add="supFS">+</button></div>
+    </div>
+
+    <div class="card">
+      <h2>SUP · hors forfait</h2>
+      <div id="listSupHF"></div>
+      <div class="add-row"><input type="text" id="newSupHF" placeholder="Nouveau motif"><button data-add="supHF">+</button></div>
     </div>
 
     <div class="card">

@@ -2078,7 +2078,7 @@ const RH_HEADERS = {
   code: ['CODE MISSION'], aff: ['AFFECTATION'], zone: ['ZONE'], eqv: ['EQUIPE/VOITURE', 'EQUIPE / VOITURE'], comm: ['COMMENTAIRES'],
   TR: ['TICKET RESTAURANT'], IT: ['INDEMNITE DE TRANSPORT'], MIDI: ['REPAS MIDI'], SOIR: ['REPAS SOIR'],
   HOTEL_FORFAIT: ['FORFAIT HOTEL'], FS: ['FORFAIT SUP (MONTANT)'], SUP: ['SUP'], HOTEL_HF_MONTANT: ['HORS FORFAIT'], HOTEL_HF_LIBELLE: ['SUP HORS FORFAIT'],
-  HOTEL_BS: ['HOTEL BASSE SAISON'], HOTEL_HS: ['HOTEL HAUTE SAISON'], HOTEL_HF: ['HOTEL HORS FORFAIT']
+  HOTEL_BS: ['HOTEL BASSE SAISON'], HOTEL_HS: ['HOTEL HAUTE SAISON'], HOTEL_HF: ['HOTEL HORS FORFAIT', 'HOTEL HF']
 };
 const RH_TIME_FIELDS = ['debutAM', 'finAM', 'debutPM', 'finPM'];
 
@@ -2314,7 +2314,7 @@ async function exportRHFichier(scope) {
       if (f === 'semaine') {
         const wk = typeof r[dateCol] === 'number'
           ? getISOWeekInfo(new Date(Date.UTC(1899, 11, 30) + r[dateCol] * 86400000 + 12 * 3600000)).week : null;
-        x += `<c r="${c}${n}"${sAttr(false)} t="str"><f>"S"&amp;TEXT(_xlfn.ISOWEEKNUM(${dateCol}${n}),"00")</f><v>${wk ? 'S' + String(wk).padStart(2, '0') : ''}</v></c>`;
+        x += `<c r="${c}${n}"${sAttr(false)} t="str"><f>TEXT(_xlfn.ISOWEEKNUM(${dateCol}${n}),"00")</f><v>${wk ? String(wk).padStart(2, '0') : ''}</v></c>`;
       } else if (f === 'cumul' && colOf.debutAM && colOf.finAM && colOf.debutPM && colOf.finPM) {
         x += `<c r="${c}${n}"${sAttr(false)}><f>(${colOf.finPM}${n}-${colOf.debutPM}${n})+(${colOf.finAM}${n}-${colOf.debutAM}${n})</f><v>${fmtCached(cumulVal)}</v></c>`;
       } else if (f === 'decimal' && colOf.cumul) {

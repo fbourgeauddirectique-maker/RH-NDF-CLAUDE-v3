@@ -2094,6 +2094,8 @@ function rhValuesFromDay(ds, day) {
   const hfLibelle = [hfMontant > 0 ? 'Hotel Hors Forfait' : '', hfNote].filter(Boolean).join(' / ');
   return {
     nom: RH_NOM, date: xlSerial(parseDateStr(ds)),
+    // Récup : le cumul est forcé à la durée journalière (7h48 par défaut), en fraction de jour
+    __recupCumul: dayKind(day) === 'recup' ? state.settings.heuresJour / 1440 : null,
     debutAM: frac(hh.debutAM), finAM: frac(hh.finAM), debutPM: frac(hh.debutPM), finPM: frac(hh.finPM),
     code: (day.mission || '').trim(), aff: (day.affectation || '').trim(), zone: (day.zone || '').trim(),
     eqv: [day.equipe, day.voiture].map(x => (x || '').trim()).filter(Boolean).join(' / '),
@@ -2259,6 +2261,7 @@ async function exportRHFichier(scope) {
     const v = rhValuesFromDay(ds, state.days[ds]);
     const o = {};
     Object.keys(colOf).forEach(f => { if (f in v) o[colOf[f]] = v[f]; });
+    o.__recupCumul = v.__recupCumul;
     return o;
   });
   const dateCol = colOf.date;
@@ -2302,7 +2305,11 @@ async function exportRHFichier(scope) {
     const n = i + 2, last = i === all.length - 1;
     const num = c => (typeof r[c] === 'number' ? r[c] : 0);
     const tm = f => (colOf[f] ? num(colOf[f]) : 0);
-    const cumulVal = (tm('finPM') - tm('debutPM')) + (tm('finAM') - tm('debutAM'));
+    const cumulVal = (typeof r.__recupCumul === 'number')
+      ? r.__recupCumul
+      : (tm('finPM') - tm('debutPM')) + (tm('finAM') - tm('debutAM'));
+    const cumulFormula = (typeof r.__recupCumul === 'number') ? null
+      : `(${colOf.finPM}${n}-${colOf.debutPM}${n})+(${colOf.finAM}${n}-${colOf.debutAM}${n})`;
     let x = `<row r="${n}" ht="15" thickBot="1" x14ac:dyDescent="0.4">`;
     for (let k = 1; k <= lastIdx; k++) {
       const c = colLetter(k);
@@ -2316,7 +2323,7 @@ async function exportRHFichier(scope) {
           ? getISOWeekInfo(new Date(Date.UTC(1899, 11, 30) + r[dateCol] * 86400000 + 12 * 3600000)).week : null;
         x += `<c r="${c}${n}"${sAttr(false)} t="str"><f>TEXT(_xlfn.ISOWEEKNUM(${dateCol}${n}),"00")</f><v>${wk ? String(wk).padStart(2, '0') : ''}</v></c>`;
       } else if (f === 'cumul' && colOf.debutAM && colOf.finAM && colOf.debutPM && colOf.finPM) {
-        x += `<c r="${c}${n}"${sAttr(false)}><f>(${colOf.finPM}${n}-${colOf.debutPM}${n})+(${colOf.finAM}${n}-${colOf.debutAM}${n})</f><v>${fmtCached(cumulVal)}</v></c>`;
+        x += `<c r="${c}${n}"${sAttr(false)}>${cumulFormula ? `<f>${cumulFormula}</f>` : ''}<v>${fmtCached(cumulVal)}</v></c>`;
       } else if (f === 'decimal' && colOf.cumul) {
         x += `<c r="${c}${n}"${sAttr(false)}><f>ROUND(${colOf.cumul}${n}*24,2)</f><v>${fmtCached(Math.round(cumulVal * 24 * 100) / 100)}</v></c>`;
       } else if (timeCols.has(c)) {
